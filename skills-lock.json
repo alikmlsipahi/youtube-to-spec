@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "youtube-transcript": {
+      "source": "intellectronica/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/youtube-transcript/SKILL.md",
+      "computedHash": "790a7240f43726fe8d25da049af9b771623d27d9b446eeab33f9aa5b3e0756c1"
+    }
+  }
+}
