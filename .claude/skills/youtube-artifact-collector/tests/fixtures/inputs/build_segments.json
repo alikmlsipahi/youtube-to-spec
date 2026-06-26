@@ -1,0 +1,23 @@
+{
+  "cases": [
+    {
+      "name": "normal_multi_segment",
+      "snippets": [
+        { "start": 0.0, "duration": 1.5, "text": "Merhaba" },
+        { "start": 1.5, "duration": 2.0, "text": "kayıt ekranı" },
+        { "start": 3.5, "duration": 0.5, "text": "  boşluklu  " }
+      ]
+    },
+    {
+      "name": "text_losslessness_and_zero_duration",
+      "snippets": [
+        { "start": 0.0, "duration": 0.0, "text": "" },
+        { "start": 0.0, "duration": 2.25, "text": "line one\nline two" }
+      ]
+    },
+    {
+      "name": "empty",
+      "snippets": []
+    }
+  ]
+}

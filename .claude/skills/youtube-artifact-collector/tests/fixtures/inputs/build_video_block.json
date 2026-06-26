@@ -1,0 +1,47 @@
+{
+  "cases": [
+    {
+      "name": "full_with_extra_fields",
+      "meta": {
+        "id": "fl1DSmwQKKY",
+        "webpage_url": "https://www.youtube.com/watch?v=fl1DSmwQKKY",
+        "title": "Kayıt Ekranı Tanıtımı",
+        "channel": "Örnek Kanal",
+        "channel_id": "UC123456789",
+        "uploader": "Örnek Kanal",
+        "upload_date": "20240115",
+        "duration": 612,
+        "description": "Bu videoda kayıt ekranı anlatılır.\nİkinci satır.",
+        "tags": ["kayıt", "modül"],
+        "categories": ["Education"],
+        "chapters": [{ "start_time": 0.0, "end_time": 30.0, "title": "Giriş" }],
+        "language": "tr",
+        "availability": "public",
+        "view_count": 1234,
+        "thumbnails": [{ "url": "https://example.test/t.jpg" }],
+        "extra_unknown_field": "ignored by build_video_block"
+      }
+    },
+    {
+      "name": "minimal_missing_optionals",
+      "meta": {
+        "id": "abc12345678",
+        "title": "Only Title"
+      }
+    },
+    {
+      "name": "falsy_values_preserved",
+      "meta": {
+        "id": "xyz98765432",
+        "webpage_url": "https://youtu.be/xyz98765432",
+        "title": "Mixed Bag",
+        "channel": "Chan",
+        "duration": 0,
+        "description": "",
+        "tags": [],
+        "chapters": null,
+        "language": null
+      }
+    }
+  ]
+}

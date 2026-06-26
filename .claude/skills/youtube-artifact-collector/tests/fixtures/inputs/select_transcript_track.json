@@ -1,0 +1,42 @@
+{
+  "cases": [
+    {
+      "name": "manual_match_in_first_pref_lang",
+      "langs": ["tr", "en"],
+      "tracks": [
+        { "language_code": "tr", "language": "Turkish", "is_generated": false, "is_translatable": true },
+        { "language_code": "tr", "language": "Turkish (auto-generated)", "is_generated": true, "is_translatable": true },
+        { "language_code": "en", "language": "English", "is_generated": false, "is_translatable": true }
+      ]
+    },
+    {
+      "name": "manual_preferred_despite_inventory_order",
+      "langs": ["tr"],
+      "tracks": [
+        { "language_code": "tr", "language": "Turkish (auto-generated)", "is_generated": true, "is_translatable": true },
+        { "language_code": "tr", "language": "Turkish", "is_generated": false, "is_translatable": false }
+      ]
+    },
+    {
+      "name": "lang_order_beats_track_type",
+      "langs": ["tr", "en"],
+      "tracks": [
+        { "language_code": "en", "language": "English", "is_generated": false, "is_translatable": true },
+        { "language_code": "tr", "language": "Turkish (auto-generated)", "is_generated": true, "is_translatable": true }
+      ]
+    },
+    {
+      "name": "fallback_to_first_when_no_pref",
+      "langs": ["tr", "en"],
+      "tracks": [
+        { "language_code": "de", "language": "German (auto-generated)", "is_generated": true, "is_translatable": true },
+        { "language_code": "fr", "language": "French", "is_generated": false, "is_translatable": false }
+      ]
+    },
+    {
+      "name": "empty_tracks",
+      "langs": ["tr", "en"],
+      "tracks": []
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "results": [
+    {
+      "selected_index": 0,
+      "selected": { "language": "tr", "language_name": "Turkish", "type": "manual", "is_generated": false },
+      "available_tracks": [
+        { "language": "tr", "name": "Turkish", "is_generated": false, "is_translatable": true },
+        { "language": "tr", "name": "Turkish (auto-generated)", "is_generated": true, "is_translatable": true },
+        { "language": "en", "name": "English", "is_generated": false, "is_translatable": true }
+      ]
+    },
+    {
+      "selected_index": 1,
+      "selected": { "language": "tr", "language_name": "Turkish", "type": "manual", "is_generated": false },
+      "available_tracks": [
+        { "language": "tr", "name": "Turkish (auto-generated)", "is_generated": true, "is_translatable": true },
+        { "language": "tr", "name": "Turkish", "is_generated": false, "is_translatable": false }
+      ]
+    },
+    {
+      "selected_index": 1,
+      "selected": { "language": "tr", "language_name": "Turkish (auto-generated)", "type": "auto", "is_generated": true },
+      "available_tracks": [
+        { "language": "en", "name": "English", "is_generated": false, "is_translatable": true },
+        { "language": "tr", "name": "Turkish (auto-generated)", "is_generated": true, "is_translatable": true }
+      ]
+    },
+    {
+      "selected_index": 0,
+      "selected": { "language": "de", "language_name": "German (auto-generated)", "type": "auto", "is_generated": true },
+      "available_tracks": [
+        { "language": "de", "name": "German (auto-generated)", "is_generated": true, "is_translatable": true },
+        { "language": "fr", "name": "French", "is_generated": false, "is_translatable": false }
+      ]
+    },
+    {
+      "selected_index": null,
+      "selected": null,
+      "available_tracks": []
+    }
+  ]
+}
