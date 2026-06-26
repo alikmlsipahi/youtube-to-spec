@@ -31,7 +31,7 @@ From the original interview (carried over from the draft):
 | Skill 2 form | Packaged skill with external swappable prompt/template. |
 | Skill 1 tooling | **yt-dlp** (metadata, playlist, graceful skip) + **youtube-transcript-api** (transcripts). |
 | Storage | JSON canonical (lossless) + Markdown view alongside. |
-| Transcript language | Preference list + fallback to first available track; store one track + full inventory. |
+| Transcript language | Preference list (manual preferred over auto within a language) + fallback to first available track; store one track + full inventory. |
 | Old skill | New skill, selectively reuse logic, no runtime dependency; deprecate `youtube-transcript` after verification. |
 | Layout | Per-collection folder + manifest; standalone → `_singles/`. Auto-create dirs. |
 | Save behavior | Default save; also `--print` / no-save terminal mode. |
@@ -47,7 +47,7 @@ Newly locked this session:
 | **Output root** | **`data/`** (already exists, already gitignored — `.gitignore:34`) |
 | **Default `--langs`** | **`tr,en`** (then fallback to first available track) |
 | **`watch?v=…&list=…`** | **Single video by default**; whole playlist only with explicit `--playlist`. |
-| **OpenAI engine** | **Build fully now** (configurable model/temp/max_tokens/response_format/timeout/retry, json_schema structured output). |
+| **OpenAI engine** | **Build fully now** (configurable model/temp/max_tokens/response_format/timeout/retry/concurrency, json_schema structured output). |
 | **Long-transcript chunking** | **Seam + `# TODO` only** for Phase 1 (brief says "evaluate", not "implement"). |
 | **Skill 2 ID scheme** | **Custom domain-coded `<MODULE>-<FEATURE>-<NNN>`** — see Skill 2 below. |
 | **File/manifest naming** | `_manifest.json`, `<video_id>.json` / `<video_id>.md`, `_singles/`, slug = `slugify(title)-<id>` — centralized in helpers so it stays a one-edit change. |
@@ -112,7 +112,7 @@ SKILL.md frontmatter convention (`.claude/skills/youtube-transcript/SKILL.md:1-4
 1. `classify_input(args)` — playlist URL vs single vs multiple. `watch?v=…&list=…` → **single** unless `--playlist`.
 2. `enumerate_playlist(url)` — `yt-dlp --flat-playlist --dump-single-json`; capture playlist id/title/uploader, ordered member ids, and `hidden_unavailable_count` parsed from stderr WARNING.
 3. `fetch_metadata(video_id)` — `yt-dlp --skip-download --dump-json` via subprocess; on failure return `None` + record (graceful degradation). Subprocess (not Python API) for stable JSON + per-video isolation.
-4. `fetch_transcript(video_id, langs)` — `YouTubeTranscriptApi().list()` + `find_transcript(langs)`, fallback to first track; record selected language/type + **full available-track inventory**; segments `{index,start,duration,end,text}`. **Never modify transcript text.**
+4. `fetch_transcript(video_id, langs)` — `YouTubeTranscriptApi().list()` + `find_transcript(langs)` (within a matched language prefers **manual over auto**, per library default), fallback to first track; record selected language/type + **full available-track inventory**; segments `{index,start,duration,end,text}`. **Never modify transcript text.**
 5. `render_markdown(artifact)` — metadata header + `[MM:SS]`/`[HH:MM:SS]` transcript via `format_timestamp`.
 6. `write_artifacts()` + `write_manifest()` — layout below; `mkdir(parents=True, exist_ok=True)`.
 7. Helpers `collection_dir_name()` / `artifact_basename()` — centralize all naming.
@@ -141,7 +141,7 @@ SKILL.md frontmatter convention (`.claude/skills/youtube-transcript/SKILL.md:1-4
 `schema_version` + nested shape lets roadmap artifact types (visual/OCR/segmentation/entities) be added
 as sibling keys without rework. `transcript.segments[].index` is the stable address roadmap §53 needs.
 
-**File layout (root = `data/`):**
+**File layout (root = `data/`, resolved relative to the current working directory; override with `--root`):**
 ```
 data/
 ├── <slug(title)>-<playlist_id>/
@@ -192,8 +192,8 @@ feature-requirement-extractor/
 - **OpenAI (built fully now):** `extract_requirements.py` loads the **same** external prompts/template,
   fills placeholders, calls OpenAI with **configurable** model / temperature / max_tokens /
   response_format(json_schema) / timeout / retry / concurrency (**precedence CLI > env > default**; key
-  from `.env`), requests **structured JSON output**, then renders Markdown from it. Long-transcript
-  chunking = a single `# TODO` seam only.
+  from `.env` loaded from the current working directory, then process env), requests **structured JSON
+  output**, then renders Markdown from it. Long-transcript chunking = a single `# TODO` seam only.
 
 **Both engines emit the same output shape** → consumption stays engine-agnostic.
 
@@ -209,7 +209,7 @@ feature-requirement-extractor/
 - A **module/action lookup table lives in the prompt file** so codes evolve without touching code.
 - **Consolidation / global renumbering is a separate, later stage** (not Phase 1).
 
-**Output:** `<video_id>.requirements.md` + `<video_id>.requirements.json`. Doc = source header
+**Output** (default: written alongside the source artifact — same collection folder or `_singles/`; override with `--out-dir`)**:** `<video_id>.requirements.md` + `<video_id>.requirements.json`. Doc = source header
 (video url/title/channel/collection) + mini-summary + Module→Feature→Requirements (each requirement:
 `id`=`<MODULE>-<FEATURE>-<NNN>`, `text`, `source_video_id`, `trace{timestamp,segment_index}`) +
 Assumptions & Open Questions. JSON mirrors the doc. Terminology, granularity, and the code lookup all
@@ -217,6 +217,14 @@ live in the swappable prompt/template.
 
 **Input:** path to a `<video_id>.json` artifact, **or** a collection folder → iterate `_manifest.json`
 members with `status: ok`. Coupling is the JSON schema (`schema_version`) only; defensive reads.
+
+**CLI (OpenAI engine):**
+```
+extract_requirements.py <artifact.json | collection_dir> [--engine claude|openai]
+  [--model NAME] [--temperature T] [--max-tokens N] [--response-format json_schema|text]
+  [--timeout S] [--retries N] [--concurrency N] [--out-dir NAME] [--no-save|--print]
+```
+(The Claude-native engine takes no script flags — it is driven entirely by `SKILL.md`.)
 
 **SKILL.md trigger:** "…requirement/feature extraction, product discovery, or spec doc **from
 already-extracted artifacts** (Skill 1 JSON). Claude-native default; optional OpenAI." (Consumes JSON,
@@ -248,8 +256,9 @@ breaks on real input. A single context cannot truly *forget* what it read, so is
    expected behavior in prose, edge cases, acceptance criteria. Contains **no test code**.
 2. **Test-writer agent:** reads spec + acceptance criteria, captures fixtures, writes `tests/`. Returns
    only file paths + test counts (**never** assertion text). Context discarded after.
-3. **Implementer agent:** given the spec + signatures + canonical schema **only**. **Denylist:** must
-   not open `tests/**`, `**/conftest.py`, `**/fixtures/**`. Writes the script; does **not** run tests.
+3. **Implementer agent:** given the spec + signatures + canonical schema, **plus** the reuse source
+   `.claude/skills/youtube-transcript/scripts/get_transcript.py` (a source file, not a test). **Denylist:**
+   must not open `tests/**`, `**/conftest.py`, `**/fixtures/**`. Writes the script; does **not** run tests.
 4. **Verifier agent:** runs the suite and **translates each failure into a plain-language behavioral
    gap** (e.g. "does not emit HH:MM:SS past one hour"), stripping all assertion/line detail.
 5. **Reviser = fresh implementer:** receives only the NL behavioral gaps + spec + current code (no
@@ -277,7 +286,7 @@ Each row = one requirement with a stable id used by the checklist. **Pure/offlin
 | T-S1-03 | `classify_input` | single / multiple / playlist; `watch?v=…&list=…`→single; `--playlist`→playlist |
 | T-S1-04 | `slugify`/`collection_dir_name` | Turkish chars (ı ş ğ ü ö ç) → ascii; spaces→`-`; appends `-<playlist_id>` |
 | T-S1-05 | `build_video_block` | captured yt-dlp JSON → canonical `video{}` keys; missing optional fields tolerated |
-| T-S1-06 | `select_transcript_track` | preference match; fallback to first when no pref; records lang/type/is_generated + full inventory (mocked tracks) |
+| T-S1-06 | `select_transcript_track` | language preference match; **manual preferred over auto** within a language; fallback to first when no pref; records lang/type/is_generated + full inventory (mocked tracks) |
 | T-S1-07 | `build_segments` | snippets → `{index,start,duration,end,text}`; index from 0; **text byte-identical**; `end=start+duration` |
 | T-S1-08 | `render_markdown` | header has title/url/channel/collection; first line `[00:00]`; >1h uses `HH:MM:SS` |
 | T-S1-09 | `build_manifest` | ok + failed members; failed carry status+reason, `files=null`; summary counts correct; order preserved |
@@ -287,7 +296,7 @@ Each row = one requirement with a stable id used by the checklist. **Pure/offlin
 *Skill 2 — `feature-requirement-extractor` (OpenAI engine `scripts/extract_requirements.py`):*
 | id | unit | what the test pins down |
 |---|---|---|
-| T-S2-01 | config resolution | precedence **CLI > env > default** for model/temperature/max_tokens/timeout/retry |
+| T-S2-01 | config resolution | precedence **CLI > env > default** for model/temperature/max_tokens/response_format/timeout/retry/concurrency |
 | T-S2-02 | `fill_prompt` | every `{{placeholder}}` replaced from artifact; no residual `{{…}}` |
 | T-S2-03 | `parse_response`/`render` | captured json_schema response → Markdown (REQ ids + trace) and mirrored JSON |
 | T-S2-04 | `validate_req_id` | `^[A-Z0-9]{3,6}-[A-Z0-9-]{3,10}-\d{3}$`; video-local `NNN` from `001`; video_id **absent** from id |
@@ -324,7 +333,7 @@ Each row = one requirement with a stable id used by the checklist. **Pure/offlin
 - **Engine-agnostic output:** Claude-native and OpenAI engines emit the same shape. *(T-S2-03; A-03)*
 
 ## Trackable progress checklist (crash-resilient)
-The implementer maintains a living file **`docs/claude_plans/recursive-booping-penguin-progress.md`**,
+The implementer maintains a living file **`docs/IMPLEMENTATION_PLAN-progress.md`**,
 updated after **every** atomic transition (so a crash mid-build is resumable by re-reading it). One line
 per catalog id:
 ```
@@ -383,6 +392,6 @@ id; advance a component only when its tests are green via the verifier:
 - `.claude/skills/feature-requirement-extractor/{prompts/*,templates/*,.env.example}` — **new**.
 - `.claude/skills/youtube-artifact-collector/tests/{test_*.py,conftest.py,fixtures/inputs/*,fixtures/expected/*}` — **new** (test-writer agent; **denylisted** for implementer).
 - `.claude/skills/feature-requirement-extractor/tests/{test_*.py,conftest.py,fixtures/inputs/*,fixtures/expected/*}` — **new** (test-writer agent; **denylisted** for implementer).
-- `docs/claude_plans/recursive-booping-penguin-progress.md` — **new** living crash-resilient checklist (created at build start).
+- `docs/IMPLEMENTATION_PLAN-progress.md` — **new** living crash-resilient checklist (created at build start).
 - `skills-lock.json` (repo root) — edited only at the deprecation step.
 - `docs/02_PRODUCT_BRIEF.md` / `docs/03_ROADMAP.md` — authoritative requirements the schemas satisfy.
