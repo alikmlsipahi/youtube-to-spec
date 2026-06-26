@@ -10,7 +10,9 @@ per-video JSON + readable Markdown, with per-collection manifests.
 Phase 1 — pure helpers (T-S1-01..04). Remaining functions are added by later units.
 """
 
+import json
 import re
+import subprocess
 
 
 def extract_video_id(url_or_id: str) -> str:
@@ -198,3 +200,145 @@ def build_segments(snippets) -> list[dict]:
         }
         for i, snippet in enumerate(snippets)
     ]
+
+
+def render_markdown(artifact: dict) -> str:
+    """Render one canonical per-video artifact dict into the readable Markdown view.
+
+    A metadata header (title/url/channel/collection) followed by a transcript
+    section: one ``[<ts>] <text>`` line per segment, where ``<ts>`` comes from
+    ``format_timestamp(segment["start"])``. Segment text is reproduced verbatim;
+    a missing/empty transcript yields a short note instead of segment lines. The
+    collection line is always emitted (placeholder when standalone) to preserve
+    video↔collection relational integrity in the readable view.
+    """
+    video = artifact.get("video") or {}
+    collection = artifact.get("collection")
+    transcript = artifact.get("transcript") or {}
+
+    title = video.get("title")
+    url = video.get("url")
+    channel = video.get("channel")
+
+    placeholder = "—"
+    if collection:
+        collection_title = collection.get("title") or placeholder
+    else:
+        collection_title = placeholder
+
+    lines = [
+        f"# {title if title is not None else placeholder}",
+        "",
+        f"- **URL:** {url if url is not None else placeholder}",
+        f"- **Channel:** {channel if channel is not None else placeholder}",
+        f"- **Collection:** {collection_title}",
+        "",
+        "## Transcript",
+        "",
+    ]
+
+    segments = transcript.get("segments") or []
+    if transcript.get("available") and segments:
+        for segment in segments:
+            ts = format_timestamp(segment["start"])
+            lines.append(f"[{ts}] {segment['text']}")
+    else:
+        lines.append("_No transcript available._")
+
+    return "\n".join(lines)
+
+
+def build_manifest(collection: dict, members: list[dict]) -> dict:
+    """Assemble the in-memory `_manifest.json` object for one collection.
+
+    Pairs the collection descriptor with an order-preserving member list (each
+    member carrying status and, on failure, a reason) plus a computed summary of
+    counts. Failed/skipped members are always listed — never dropped — and their
+    ``files`` is forced to ``null``. ``no_transcript`` counts only succeeded
+    members whose transcript is unavailable.
+    """
+    emitted_members = []
+    ok_count = 0
+    failed_count = 0
+    no_transcript_count = 0
+
+    for record in members:
+        status = record.get("status")
+        is_ok = status == "ok"
+
+        files = record.get("files") if is_ok else None
+
+        emitted_members.append(
+            {
+                "position": record.get("position"),
+                "video_id": record.get("video_id"),
+                "title": record.get("title"),
+                "status": status,
+                "reason": record.get("reason"),
+                "files": files,
+                "transcript": record.get("transcript"),
+            }
+        )
+
+        if is_ok:
+            ok_count += 1
+            transcript = record.get("transcript")
+            if not transcript or transcript.get("available") is not True:
+                no_transcript_count += 1
+        else:
+            failed_count += 1
+
+    summary = {
+        "total": len(members),
+        "ok": ok_count,
+        "failed": failed_count,
+        "no_transcript": no_transcript_count,
+    }
+
+    return {
+        "collection": collection,
+        "members": emitted_members,
+        "summary": summary,
+    }
+
+
+def parse_hidden_unavailable(stderr: str) -> int:
+    """Parse yt-dlp's stderr for the count of hidden unavailable playlist videos.
+
+    Extracts the integer that immediately precedes the phrase
+    ``unavailable videos`` in yt-dlp's WARNING line; returns the first
+    occurrence's count, or ``0`` when no such warning is present. Never raises.
+    """
+    if not stderr:
+        return 0
+    match = re.search(r"(\d+)\s+unavailable videos", stderr)
+    if match:
+        return int(match.group(1))
+    return 0
+
+
+def fetch_metadata(video_id: str) -> dict | None:
+    """Fetch one video's metadata via yt-dlp subprocess; ``None`` on any failure.
+
+    Shells out to ``yt-dlp --skip-download --dump-json <video_id>`` (subprocess
+    for stable JSON + per-video isolation). Returns the parsed dict on a clean
+    (return code 0, parseable JSON) run, otherwise ``None`` — never raises and
+    never calls ``sys.exit`` so a single bad video degrades gracefully and the
+    batch continues.
+    """
+    try:
+        result = subprocess.run(
+            ["yt-dlp", "--skip-download", "--dump-json", video_id],
+            capture_output=True,
+            text=True,
+        )
+    except Exception:
+        return None
+
+    if result.returncode != 0:
+        return None
+
+    try:
+        return json.loads(result.stdout)
+    except Exception:
+        return None
