@@ -1,0 +1,109 @@
+{
+  "artifact_full": {
+    "schema_version": "1.0",
+    "kind": "video_artifact",
+    "extracted_at": "2026-06-26T10:00:00Z",
+    "video": {
+      "id": "fl1DSmwQKKY",
+      "url": "https://www.youtube.com/watch?v=fl1DSmwQKKY",
+      "title": "Öğrenci Kayıt Ekranı",
+      "channel": "Örnek Yazılım",
+      "channel_id": "UCexample",
+      "uploader": "Örnek Yazılım",
+      "upload_date": "20240115",
+      "duration_seconds": 612,
+      "description": "Bu videoda kayıt modülünün öğrenci ekleme ekranı anlatılır.",
+      "tags": ["kayıt", "öğrenci"],
+      "categories": ["Education"],
+      "chapters": [],
+      "default_language": "tr",
+      "availability": "public"
+    },
+    "collection": {
+      "type": "playlist",
+      "id": "PLxyz123",
+      "title": "Kayıt Modülü",
+      "uploader": "Örnek Yazılım",
+      "position": 1,
+      "total_members": 12
+    },
+    "transcript": {
+      "available": true,
+      "selected": { "language": "tr", "language_name": "Turkish", "type": "auto", "is_generated": true },
+      "available_tracks": [
+        { "language": "tr", "name": "Turkish (auto-generated)", "is_generated": true, "is_translatable": true }
+      ],
+      "segment_count": 3,
+      "segments": [
+        { "index": 0, "start": 0.0, "duration": 3.2, "end": 3.2, "text": "Merhaba, kayıt ekranını açıyoruz." },
+        { "index": 1, "start": 3.2, "duration": 4.0, "end": 7.2, "text": "Yeni öğrenci eklemek için butona basın." },
+        { "index": 2, "start": 7.2, "duration": 3.5, "end": 10.7, "text": "Formu doldurup kaydedin." }
+      ]
+    },
+    "extraction": { "metadata_ok": true, "transcript_ok": true, "warnings": [], "tool_versions": {} }
+  },
+  "artifact_no_description": {
+    "schema_version": "1.0",
+    "kind": "video_artifact",
+    "video": {
+      "id": "NODESC00000",
+      "url": "https://www.youtube.com/watch?v=NODESC00000",
+      "title": "Açıklamasız Video",
+      "channel": "Örnek Yazılım"
+    },
+    "collection": {
+      "type": "playlist",
+      "id": "PLxyz123",
+      "title": "Kayıt Modülü"
+    },
+    "transcript": {
+      "available": true,
+      "segment_count": 1,
+      "segments": [
+        { "index": 0, "start": 0.0, "duration": 2.0, "end": 2.0, "text": "Tek segment." }
+      ]
+    }
+  },
+  "artifact_null_collection": {
+    "schema_version": "1.0",
+    "kind": "video_artifact",
+    "video": {
+      "id": "SINGLE00000",
+      "url": "https://www.youtube.com/watch?v=SINGLE00000",
+      "title": "Tekil Video",
+      "channel": "Örnek Yazılım",
+      "description": "Koleksiyona ait olmayan tekil video."
+    },
+    "collection": null,
+    "transcript": {
+      "available": true,
+      "segment_count": 1,
+      "segments": [
+        { "index": 0, "start": 1.5, "duration": 2.0, "end": 3.5, "text": "Bağımsız içerik." }
+      ]
+    }
+  },
+  "artifact_no_transcript": {
+    "schema_version": "1.0",
+    "kind": "video_artifact",
+    "video": {
+      "id": "NOTRANS0000",
+      "url": "https://www.youtube.com/watch?v=NOTRANS0000",
+      "title": "Altyazısız Video",
+      "channel": "Örnek Yazılım",
+      "description": "Bu videonun transcripti yok."
+    },
+    "collection": {
+      "type": "playlist",
+      "id": "PLxyz123",
+      "title": "Kayıt Modülü"
+    },
+    "transcript": {
+      "available": false,
+      "selected": null,
+      "available_tracks": [],
+      "segment_count": 0,
+      "segments": []
+    }
+  }
+}

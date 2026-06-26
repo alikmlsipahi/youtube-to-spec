@@ -1,0 +1,53 @@
+{
+  "cases": [
+    {
+      "name": "exact_duplicate_collapses_first_wins",
+      "requirements": [
+        { "id": "REG-ADD-001", "source_video_id": "VIDXXXXXXXX", "text": "first" },
+        { "id": "REG-ADD-001", "source_video_id": "VIDXXXXXXXX", "text": "second" }
+      ]
+    },
+    {
+      "name": "same_id_two_videos_both_kept",
+      "requirements": [
+        { "id": "REG-ADD-001", "source_video_id": "VIDAAAAAAAA", "text": "from A" },
+        { "id": "REG-ADD-001", "source_video_id": "VIDBBBBBBBB", "text": "from B" }
+      ]
+    },
+    {
+      "name": "diff_id_same_video_both_kept",
+      "requirements": [
+        { "id": "REG-ADD-001", "source_video_id": "VIDAAAAAAAA", "text": "add" },
+        { "id": "REG-DEL-002", "source_video_id": "VIDAAAAAAAA", "text": "del" }
+      ]
+    },
+    {
+      "name": "interleaved_duplicate_preserves_order",
+      "requirements": [
+        { "id": "REG-ADD-001", "source_video_id": "VIDAAAAAAAA", "text": "a1" },
+        { "id": "REG-DEL-002", "source_video_id": "VIDAAAAAAAA", "text": "b1" },
+        { "id": "REG-ADD-001", "source_video_id": "VIDAAAAAAAA", "text": "a2-dupe" }
+      ]
+    },
+    {
+      "name": "no_duplicates_unchanged",
+      "requirements": [
+        { "id": "REG-ADD-001", "source_video_id": "VIDAAAAAAAA", "text": "x" },
+        { "id": "EXAM-GRADE-001", "source_video_id": "VIDBBBBBBBB", "text": "y" },
+        { "id": "ATTND-MARK-001", "source_video_id": "VIDCCCCCCCC", "text": "z" }
+      ]
+    },
+    {
+      "name": "all_identical_collapses_to_one",
+      "requirements": [
+        { "id": "REG-ADD-001", "source_video_id": "VIDAAAAAAAA", "text": "1" },
+        { "id": "REG-ADD-001", "source_video_id": "VIDAAAAAAAA", "text": "2" },
+        { "id": "REG-ADD-001", "source_video_id": "VIDAAAAAAAA", "text": "3" }
+      ]
+    },
+    {
+      "name": "empty_list",
+      "requirements": []
+    }
+  ]
+}

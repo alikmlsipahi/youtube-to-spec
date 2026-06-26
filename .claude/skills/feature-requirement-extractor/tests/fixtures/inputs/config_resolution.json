@@ -1,0 +1,110 @@
+{
+  "cases": [
+    {
+      "name": "all_cli_overrides_env",
+      "cli": {
+        "model": "gpt-4o",
+        "temperature": 0.9,
+        "max_tokens": 8000,
+        "response_format": "text",
+        "timeout": 120,
+        "retries": 5,
+        "concurrency": 8
+      },
+      "env": {
+        "OPENAI_MODEL": "env-model",
+        "OPENAI_TEMPERATURE": "0.1",
+        "OPENAI_MAX_TOKENS": "100",
+        "OPENAI_RESPONSE_FORMAT": "json_schema",
+        "OPENAI_TIMEOUT": "10",
+        "OPENAI_RETRIES": "1",
+        "OPENAI_CONCURRENCY": "1"
+      }
+    },
+    {
+      "name": "all_env",
+      "cli": {
+        "model": null,
+        "temperature": null,
+        "max_tokens": null,
+        "response_format": null,
+        "timeout": null,
+        "retries": null,
+        "concurrency": null
+      },
+      "env": {
+        "OPENAI_MODEL": "gpt-4o",
+        "OPENAI_TEMPERATURE": "0.7",
+        "OPENAI_MAX_TOKENS": "2048",
+        "OPENAI_RESPONSE_FORMAT": "text",
+        "OPENAI_TIMEOUT": "30",
+        "OPENAI_RETRIES": "2",
+        "OPENAI_CONCURRENCY": "6"
+      }
+    },
+    {
+      "name": "all_default",
+      "cli": {
+        "model": null,
+        "temperature": null,
+        "max_tokens": null,
+        "response_format": null,
+        "timeout": null,
+        "retries": null,
+        "concurrency": null
+      },
+      "env": {}
+    },
+    {
+      "name": "cli_env_default_mixed",
+      "cli": {
+        "model": "cli-model",
+        "temperature": null,
+        "max_tokens": 1234,
+        "response_format": null,
+        "timeout": null,
+        "retries": null,
+        "concurrency": null
+      },
+      "env": {
+        "OPENAI_TEMPERATURE": "0.5",
+        "OPENAI_RESPONSE_FORMAT": "text",
+        "OPENAI_CONCURRENCY": "2"
+      }
+    },
+    {
+      "name": "empty_env_strings_fall_through_to_default",
+      "cli": {
+        "model": null,
+        "temperature": null,
+        "max_tokens": null,
+        "response_format": null,
+        "timeout": null,
+        "retries": null,
+        "concurrency": null
+      },
+      "env": {
+        "OPENAI_MODEL": "",
+        "OPENAI_TEMPERATURE": "",
+        "OPENAI_MAX_TOKENS": "",
+        "OPENAI_RESPONSE_FORMAT": "",
+        "OPENAI_TIMEOUT": "",
+        "OPENAI_RETRIES": "",
+        "OPENAI_CONCURRENCY": ""
+      }
+    },
+    {
+      "name": "cli_string_values_coerced",
+      "cli": {
+        "model": "gpt-4o",
+        "temperature": "0.33",
+        "max_tokens": "512",
+        "response_format": "json_schema",
+        "timeout": "45",
+        "retries": "4",
+        "concurrency": "3"
+      },
+      "env": {}
+    }
+  ]
+}

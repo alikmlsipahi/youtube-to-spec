@@ -1,0 +1,33 @@
+{
+  "valid": [
+    "REG-ADD-001",
+    "EXAM-GRADE-012",
+    "ATTND-BULK-DEL-007",
+    "REG-ADD-STU-999",
+    "ABC-XYZ-100",
+    "REG123-ADD-001",
+    "REG-A1B-001"
+  ],
+  "invalid": [
+    "reg-add-001",
+    "REG-add-001",
+    "REG-ADD-1",
+    "REG-ADD-0001",
+    "REG-ADD-000",
+    "RE-ADD-001",
+    "REGISTR-ADD-001",
+    "REG-AD-001",
+    "REG-TOOLONGFEAT-001",
+    "REG-ADD-001 ",
+    " REG-ADD-001",
+    "REG_ADD_001",
+    "REG-ADD",
+    "REGADD001",
+    ""
+  ],
+  "embedding": [
+    { "req_id": "ABC-VID0-001", "video_id": "VID0", "expected": false },
+    { "req_id": "ABC-ADD-001", "video_id": "VID0", "expected": true },
+    { "req_id": "REG-ADD-001", "video_id": "fl1DSmwQKKY", "expected": true }
+  ]
+}

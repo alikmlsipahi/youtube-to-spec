@@ -1,0 +1,28 @@
+{
+  "deduped": [
+    [
+      { "id": "REG-ADD-001", "source_video_id": "VIDXXXXXXXX", "text": "first" }
+    ],
+    [
+      { "id": "REG-ADD-001", "source_video_id": "VIDAAAAAAAA", "text": "from A" },
+      { "id": "REG-ADD-001", "source_video_id": "VIDBBBBBBBB", "text": "from B" }
+    ],
+    [
+      { "id": "REG-ADD-001", "source_video_id": "VIDAAAAAAAA", "text": "add" },
+      { "id": "REG-DEL-002", "source_video_id": "VIDAAAAAAAA", "text": "del" }
+    ],
+    [
+      { "id": "REG-ADD-001", "source_video_id": "VIDAAAAAAAA", "text": "a1" },
+      { "id": "REG-DEL-002", "source_video_id": "VIDAAAAAAAA", "text": "b1" }
+    ],
+    [
+      { "id": "REG-ADD-001", "source_video_id": "VIDAAAAAAAA", "text": "x" },
+      { "id": "EXAM-GRADE-001", "source_video_id": "VIDBBBBBBBB", "text": "y" },
+      { "id": "ATTND-MARK-001", "source_video_id": "VIDCCCCCCCC", "text": "z" }
+    ],
+    [
+      { "id": "REG-ADD-001", "source_video_id": "VIDAAAAAAAA", "text": "1" }
+    ],
+    []
+  ]
+}

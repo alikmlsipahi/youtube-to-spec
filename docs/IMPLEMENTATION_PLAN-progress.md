@@ -24,11 +24,11 @@
 
 ## Skill 2 — `feature-requirement-extractor` (unit / blind-TDD)
 
-- [pending] T-S2-01 — config resolution (CLI > env > default)
-- [pending] T-S2-02 — fill_prompt
+- [test-written] T-S2-01 — config resolution (CLI > env > default)
+- [test-written] T-S2-02 — fill_prompt
 - [pending] T-S2-03 — parse_response / render
-- [pending] T-S2-04 — validate_req_id
-- [pending] T-S2-05 — composite-key uniqueness
+- [test-written] T-S2-04 — validate_req_id
+- [test-written] T-S2-05 — composite-key uniqueness
 - [pending] T-S2-06 — env key loading
 - [pending] T-S2-07 — input resolution
 
