@@ -93,3 +93,108 @@ def collection_dir_name(title: str, playlist_id: str) -> str:
     title portion is slugified.
     """
     return f"{slugify(title)}-{playlist_id}"
+
+
+# Canonical `video{}` keys that map straight across from the yt-dlp source
+# under `dict.get` semantics (absent → None, present-but-falsy preserved).
+_VIDEO_PASSTHROUGH_KEYS = (
+    "id", "title", "channel", "channel_id", "uploader", "upload_date",
+    "description", "tags", "categories", "chapters", "availability",
+)
+
+
+def build_video_block(meta: dict) -> dict:
+    """Project a yt-dlp `--dump-json` metadata dict to the canonical `video{}` block.
+
+    Maps/renames the relevant yt-dlp fields into the fixed canonical key set,
+    tolerates any missing optional field (`get`-semantics → ``None``), and
+    guarantees a usable ``url``. Values pass through untransformed; extra
+    yt-dlp keys are dropped.
+    """
+    block = {key: meta.get(key) for key in _VIDEO_PASSTHROUGH_KEYS}
+
+    # Renamed fields.
+    block["duration_seconds"] = meta.get("duration")
+    block["default_language"] = meta.get("language")
+
+    # Guaranteed non-null url: prefer webpage_url, else construct from id.
+    webpage_url = meta.get("webpage_url")
+    if webpage_url:
+        block["url"] = webpage_url
+    else:
+        block["url"] = f"https://www.youtube.com/watch?v={meta.get('id')}"
+
+    return block
+
+
+def select_transcript_track(tracks, langs):
+    """Pick the best transcript track per a language-preference list.
+
+    Within a matched language, a manually-created track beats an auto-generated
+    one; languages are tried in `langs` order. Falls back to the first available
+    track when no preferred language matches. Returns ``(selected_track, info)``
+    where ``info`` carries the ``selected`` descriptor and the full
+    ``available_tracks`` inventory.
+    """
+    available_tracks = [
+        {
+            "language": t.language_code,
+            "name": t.language,
+            "is_generated": t.is_generated,
+            "is_translatable": t.is_translatable,
+        }
+        for t in tracks
+    ]
+
+    selected_track = None
+    for lang in langs:
+        # Prefer manual, then auto, within this language.
+        manual = next(
+            (t for t in tracks if t.language_code == lang and not t.is_generated),
+            None,
+        )
+        if manual is not None:
+            selected_track = manual
+            break
+        auto = next(
+            (t for t in tracks if t.language_code == lang and t.is_generated),
+            None,
+        )
+        if auto is not None:
+            selected_track = auto
+            break
+
+    if selected_track is None and tracks:
+        selected_track = tracks[0]
+
+    if selected_track is None:
+        selected = None
+    else:
+        selected = {
+            "language": selected_track.language_code,
+            "language_name": selected_track.language,
+            "type": "auto" if selected_track.is_generated else "manual",
+            "is_generated": selected_track.is_generated,
+        }
+
+    info = {"selected": selected, "available_tracks": available_tracks}
+    return selected_track, info
+
+
+def build_segments(snippets) -> list[dict]:
+    """Convert raw fetched transcript snippets into canonical addressable segments.
+
+    Each snippet gets a stable zero-based ``index``, a computed
+    ``end = start + duration``, and its ``text`` carried through byte-for-byte
+    unchanged.
+    """
+    return [
+        {
+            "index": i,
+            "start": snippet.start,
+            "duration": snippet.duration,
+            "end": snippet.start + snippet.duration,
+            "text": snippet.text,
+        }
+        for i, snippet in enumerate(snippets)
+    ]
