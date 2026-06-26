@@ -1,12 +1,11 @@
-# Implementation Plan — Two Phase-1 Skills: `youtube-artifact-collector` + `feature-requirement-extractor`
+# Implementation Plan v2 — Two Phase-1 Skills: `youtube-artifact-collector` + `feature-requirement-extractor`
 
-> ⚠️ **SUPERSEDED — historical (v1).** The authoritative plan is now **`docs/IMPLEMENTATION_PLAN_v2.md`**,
-> which is identical to this file plus **Phase C (Authoring)** for the prose/asset deliverables
-> (`SKILL.md` ×2 + Skill 2 `prompts/`/`templates/`/`.env.example`). Do not build from this file; use v2.
->
-> Status: **implementation-ready.** This supersedes `docs/claude_plans/implementation-plan-draft.md`
-> by locking every previously-deferred decision (interview, this session) and folding in the
-> verified grounding from `02_PRODUCT_BRIEF.md` / `03_ROADMAP.md` and the existing skill code.
+> Status: **implementation-ready (v2).** Supersedes `docs/IMPLEMENTATION_PLAN.md` by adding the missing
+> **Phase C (Authoring)** for the prose/asset deliverables (`SKILL.md` ×2, Skill 2 `prompts/`,
+> `templates/`, `.env.example`). v1 listed these as deliverables (`Critical files`, acceptance rows
+> `A-01`–`A-04`) but never assigned them to a build step or agent role, so the blind-TDD agents — which
+> correctly build only testable units — left them unproduced. v2 closes that gap. **Everything else is
+> identical to v1.** Changes vs v1 are marked **[v2]**.
 
 ## Context — why we are building this
 
@@ -55,6 +54,7 @@ Newly locked this session:
 | **Long-transcript chunking** | **Seam + `# TODO` only** for Phase 1 (brief says "evaluate", not "implement"). |
 | **Skill 2 ID scheme** | **Custom domain-coded `<MODULE>-<FEATURE>-<NNN>`** — see Skill 2 below. |
 | **File/manifest naming** | `_manifest.json`, `<video_id>.json` / `<video_id>.md`, `_singles/`, slug = `slugify(title)-<id>` — centralized in helpers so it stays a one-edit change. |
+| **[v2] Prose/asset authoring** | **Phase C (non-blind)** after units are green, before the gate layer; agent drafts, human reviews at `A-*`. See "Build & verification sequence". |
 
 ## Grounding verified against the brief & real data
 
@@ -267,10 +267,20 @@ breaks on real input. A single context cannot truly *forget* what it read, so is
    gap** (e.g. "does not emit HH:MM:SS past one hour"), stripping all assertion/line detail.
 5. **Reviser = fresh implementer:** receives only the NL behavioral gaps + spec + current code (no
    tests). Loop verifier↔reviser, **max 3 iterations**, then escalate to the human.
+6. **[v2] Authoring agent (non-blind):** owns the *prose/asset* deliverables that have **no unit test**
+   — `SKILL.md` ×2, Skill 2 `prompts/*`, `templates/*`, `.env.example`. Runs as a **normal** session
+   (there is no test to be blind against), but the **same denylist still applies** (`tests/**`,
+   `**/conftest.py`, `**/fixtures/**`) so the code's blind-TDD barrier is never broken. It **may** read
+   the finished scripts (source, not tests) to document real CLI flags, output layout, and the exact
+   `{{placeholder}}` contract the OpenAI engine's `fill_prompt` expects. Verified by the human at the
+   `A-*` acceptance gates. Drafts domain content (module/action lookup, template wording); the human
+   reviews and may swap it without code edits.
 
 **Anti-leak rules**
 - No code-writing context (orchestrator, implementer, reviser) ever reads files under `tests/`. **Only
   the Verifier reads tests**, and it emits NL gaps only — assertion text never reaches a writer.
+- **[v2]** The Authoring agent is **not** a code-writing context for the blind units, but it inherits the
+  same `tests/**` denylist as a safety belt.
 - Fixtures split: `fixtures/inputs/` (real inputs the code parses — not biasing) vs `fixtures/expected/`
   (golden outputs — the bias risk). The implementer sees neither; spec + schema carry input-shape knowledge.
 - The progress checklist records only states, never assertions.
@@ -315,13 +325,13 @@ Each row = one requirement with a stable id used by the checklist. **Pure/offlin
 | I-02 | Skill 1 real playlist → `hidden_unavailable_count:5`, ordered members, per-video lang/type |
 | I-03 | Skill 2 OpenAI with real key → same JSON/MD shape (auto-skip if no key) |
 
-*Acceptance-only (no unit test — Claude-native/prompt-following & trigger behavior):*
-| id | criterion |
-|---|---|
-| A-01 | Skill 1 SKILL.md fires on "collect artifacts for this playlist", **not** `youtube-transcript` |
-| A-02 | Skill 2 SKILL.md fires on "extract requirements from this artifact" |
-| A-03 | Claude-native engine yields a filled doc with `<MODULE>-<FEATURE>-NNN` codes + traces matching real segment times (human review) |
-| A-04 | Swapping `prompts/extraction_prompt.md` changes output **without** code edits |
+*Acceptance-only (no unit test — Claude-native/prompt-following & trigger behavior; **[v2]** these are the gates that verify the Phase C authoring deliverables):*
+| id | criterion | **[v2] verifies Phase C step** |
+|---|---|---|
+| A-01 | Skill 1 SKILL.md fires on "collect artifacts for this playlist", **not** `youtube-transcript` | C1 (`SK1-DOC`) |
+| A-02 | Skill 2 SKILL.md fires on "extract requirements from this artifact" | C3 (`SK2-DOC`) |
+| A-03 | Claude-native engine yields a filled doc with `<MODULE>-<FEATURE>-NNN` codes + traces matching real segment times (human review) | C2 + C3 (`SK2-ASSETS`, `SK2-DOC`) |
+| A-04 | Swapping `prompts/extraction_prompt.md` changes output **without** code edits | C2 (`SK2-ASSETS`) |
 
 ## Acceptance criteria (capability-level, mapped to the brief)
 - **Metadata collection:** every brief-required field (id,url,title,collection,channel,description,
@@ -348,12 +358,27 @@ file (keeps the blind barrier intact); on resume, continue from the first non-`g
 mirror rows as Task items (TaskCreate/TaskUpdate) for live visibility, but the markdown file is the
 durable source of truth.
 
+**[v2] Authoring rows.** The prose/asset deliverables get their own section with a simpler lifecycle —
+`pending → drafted → accepted` (no `test-written`/`green`, since they have no unit tests). Add to
+`docs/IMPLEMENTATION_PLAN-progress.md`, positioned **between** the Skill-2 unit section and the
+integration tier (so a top-down "first non-`accepted` row" resume hits authoring after all units, before
+the gates):
+```
+## Authoring (non-blind; prose/assets — test-denylist still applies)
+- [pending] SK1-DOC    — youtube-artifact-collector/SKILL.md                                  (Phase C1; gate A-01)
+- [pending] SK2-ASSETS — Skill 2 prompts/{system_prompt,extraction_prompt}.md, templates/requirement_doc.md, .env.example  (Phase C2; gates A-03, A-04)
+- [pending] SK2-DOC    — feature-requirement-extractor/SKILL.md                               (Phase C3; gates A-02, A-03)
+```
+
 ---
 
 ## Build & verification sequence
 
-Two layers, in order; all via `uv run *` (already permitted). **Unit / blind-TDD layer first**, then
-**integration + acceptance gates** (these need network / an OpenAI key).
+**[v2] Three layers, in order: unit blind-TDD (A) → authoring (C) → integration + acceptance gates (B).**
+(v1 had only A then B; the prose/asset deliverables had no home. Phase C is purely additive and lands
+after all A units — it invalidates none of the existing unit work.) All via `uv run *` (already
+permitted). The **unit / blind-TDD layer runs first**; then **authoring**; then **integration +
+acceptance gates** (which need network / an OpenAI key, and which depend on the Phase C files existing).
 
 **A. Per-component blind-TDD** — run the per-component loop for each, in order; tick the checklist per
 id; advance a component only when its tests are green via the verifier:
@@ -363,16 +388,34 @@ id; advance a component only when its tests are green via the verifier:
 - **A4** Skill 2 config + prompt + id scheme — T-S2-01,02,04,05
 - **A5** Skill 2 response render + input resolution + env — T-S2-03,06,07
 
-**B. Integration + acceptance gates** (after the relevant unit work is green):
+**[v2] C. Authoring (non-blind)** — after **all A units are green**; runs as a normal session by the
+**Authoring agent** (role 6) with the `tests/**` denylist still in force. Each step ticks its checklist
+row (`pending → drafted → accepted`; `accepted` is reached at the mapped `A-*` gate in layer B):
+- **C1 → `SK1-DOC`** — author `youtube-artifact-collector/SKILL.md`: frontmatter (`name` + a
+  description carrying the de-confliction trigger, "…**not** a quick single-video transcript dump"), how
+  to invoke `scripts/extract_artifacts.py`, and the CLI flags **as actually shipped** (read the finished
+  script). *Verified by A-01.*
+- **C2 → `SK2-ASSETS`** — author Skill 2's swappable files: `prompts/system_prompt.md`,
+  `prompts/extraction_prompt.md` (with `{{placeholders}}` matching the finished `fill_prompt`, **plus**
+  the module/action code lookup table for the `<MODULE>-<FEATURE>-<NNN>` scheme), `templates/requirement_doc.md`,
+  and `.env.example` (`OPENAI_API_KEY=…`). Agent **drafts** the domain content; the **human reviews**.
+  *Verified by A-03, A-04.*
+- **C3 → `SK2-DOC`** — author `feature-requirement-extractor/SKILL.md`: Claude-native engine
+  instructions (read artifact JSON + `_manifest.json`, read the C2 prompt/template files, fill, then
+  write/print) + the consumption trigger + the optional `--engine openai` note. **Depends on C2.**
+  *Verified by A-02, A-03.*
+
+**B. Integration + acceptance gates** (after the relevant unit work is green **and [v2] Phase C is
+complete** — `B4`/`B5`/`B6` require the `SKILL.md` files and Skill 2 assets to exist):
 1. **Skill 1 single-video core** → `uv run extract_artifacts.py fl1DSmwQKKY --print` → 60 Turkish auto
    segments, `selected.type:"auto"`, full metadata, `available_tracks=[tr]` *(I-01)*.
 2. **Skill 1 save + layout** → without `--print` → `data/_singles/fl1DSmwQKKY.json` + `.md`; segments carry `index`.
 3. **Skill 1 playlist + graceful degradation** → real playlist → `data/<slug>-PLk…/` + `_manifest.json`
    (`hidden_unavailable_count:5`, ordered members), per-video failures recorded, run **continues** *(I-02)*.
-4. **Skill 1 `watch?v=…&list=…`** → single by default; `--playlist` expands. SKILL.md trigger test *(A-01)*.
+4. **Skill 1 `watch?v=…&list=…`** → single by default; `--playlist` expands. SKILL.md trigger test *(A-01)* **[v2] needs C1**.
 5. **Skill 2 Claude-native** → point at `fl1DSmwQKKY.json` → filled doc with `<MODULE>-<FEATURE>-NNN`
-   codes, `source_video_id` set, traces matching real segment times *(A-02, A-03)*.
-6. **Skill 2 OpenAI** → with `.env` key → same JSON/MD shape, configurable params honored *(I-03)*.
+   codes, `source_video_id` set, traces matching real segment times *(A-02, A-03)* **[v2] needs C2+C3**.
+6. **Skill 2 OpenAI** → with `.env` key → same JSON/MD shape, configurable params honored *(I-03)* **[v2] needs C2**.
 7. **Deprecate `youtube-transcript`** → separate user-approved step; update root `skills-lock.json`.
 
 ## Risks & mitigations
@@ -384,18 +427,39 @@ id; advance a component only when its tests are green via the verifier:
   only the Markdown *view*.
 - **Module/feature code collisions across videos** → mitigated by the composite key
   (`requirement_id`+`source_video_id`); true global dedup deferred to the later consolidation stage.
+- **[v2] Prompt-vs-code placeholder drift** → Phase C runs *after* the OpenAI engine is green, so the
+  real `extraction_prompt.md` is authored against the shipped `fill_prompt` contract (unit tests used
+  fixture prompts). A-04 confirms swappability without code edits.
 
 ## Critical files
 
 - `.claude/skills/youtube-transcript/scripts/get_transcript.py` — source of copied
   `extract_video_id` (19–29) / `format_timestamp` (32–39) / fetch pattern (42–52) / PEP-723 + main (1–5, 55–72).
 - `.claude/skills/youtube-artifact-collector/scripts/extract_artifacts.py` — **new** (Skill 1).
-- `.claude/skills/youtube-artifact-collector/SKILL.md` — **new**.
-- `.claude/skills/feature-requirement-extractor/SKILL.md` — **new** (Skill 2 Claude-native engine).
+- `.claude/skills/youtube-artifact-collector/SKILL.md` — **new** — **[v2] authored in Phase C1 (`SK1-DOC`)**.
+- `.claude/skills/feature-requirement-extractor/SKILL.md` — **new** (Skill 2 Claude-native engine) — **[v2] Phase C3 (`SK2-DOC`)**.
 - `.claude/skills/feature-requirement-extractor/scripts/extract_requirements.py` — **new** (OpenAI engine).
-- `.claude/skills/feature-requirement-extractor/{prompts/*,templates/*,.env.example}` — **new**.
-- `.claude/skills/youtube-artifact-collector/tests/{test_*.py,conftest.py,fixtures/inputs/*,fixtures/expected/*}` — **new** (test-writer agent; **denylisted** for implementer).
-- `.claude/skills/feature-requirement-extractor/tests/{test_*.py,conftest.py,fixtures/inputs/*,fixtures/expected/*}` — **new** (test-writer agent; **denylisted** for implementer).
-- `docs/IMPLEMENTATION_PLAN-progress.md` — **new** living crash-resilient checklist (created at build start).
+- `.claude/skills/feature-requirement-extractor/{prompts/*,templates/*,.env.example}` — **new** — **[v2] Phase C2 (`SK2-ASSETS`)**.
+- `.claude/skills/youtube-artifact-collector/tests/{test_*.py,conftest.py,fixtures/inputs/*,fixtures/expected/*}` — **new** (test-writer agent; **denylisted** for implementer **and the authoring agent**).
+- `.claude/skills/feature-requirement-extractor/tests/{test_*.py,conftest.py,fixtures/inputs/*,fixtures/expected/*}` — **new** (test-writer agent; **denylisted** for implementer **and the authoring agent**).
+- `docs/IMPLEMENTATION_PLAN-progress.md` — **new** living crash-resilient checklist (created at build start) — **[v2] gains the Authoring section** (`SK1-DOC`, `SK2-ASSETS`, `SK2-DOC`).
 - `skills-lock.json` (repo root) — edited only at the deprecation step.
 - `docs/02_PRODUCT_BRIEF.md` / `docs/03_ROADMAP.md` — authoritative requirements the schemas satisfy.
+
+---
+
+## [v2] Where you resume right now
+
+This v2 change is **additive and does not reset any work.** By the resume rule ("continue from the first
+non-`green` row"):
+
+- Current state in `docs/IMPLEMENTATION_PLAN-progress.md`: **`A1` (`T-S1-01..04`) is `green`** —
+  verified `uv run --with pytest pytest .../tests/` → 64 passed; `T-S1-05..11` and all of Skill 2 are
+  `pending`.
+- So the next action is **A2** — the blind-TDD loop for `T-S1-05..07` (`build_video_block`,
+  `select_transcript_track`, `build_segments`), then `A3 → A4 → A5`.
+- **Only after every A row is green** do you enter the new **Phase C** (C1 → C2 → C3), then the **B** gates.
+
+Net: keep going from where you left off (A1 done; continue at A2 down the unit list). v2 simply guarantees
+that when the units are done, `SKILL.md` ×2 and Skill 2's prompts/templates/`.env.example` are an owned,
+sequenced, human-reviewed step instead of an unassigned gap.
