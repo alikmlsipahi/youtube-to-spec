@@ -11,9 +11,16 @@ Phase 1 — pure helpers (T-S2-01, T-S2-02, T-S2-04, T-S2-05). The OpenAI call,
 rendering, and CLI are added by later units.
 """
 
+import argparse
 import json
+import os
 import pathlib
 import re
+import sys
+from concurrent.futures import ThreadPoolExecutor
+
+from dotenv import load_dotenv
+from openai import OpenAI
 
 # --- T-S2-01: config resolution (CLI > env > default) ----------------------
 
@@ -387,3 +394,230 @@ def load_artifact(path) -> dict:
     if not isinstance(data, dict):
         raise ValueError(f"Artifact file {p} did not decode to a JSON object")
     return data
+
+
+# ---------------------------------------------------------------------------
+# Orchestration layer (additive glue; wires the pure helpers above into the
+# OpenAI engine + CLI). No existing function above is modified.
+# ---------------------------------------------------------------------------
+
+_PROMPTS_DIR = pathlib.Path(__file__).resolve().parent.parent / "prompts"
+
+
+def load_prompt_files():
+    """Read the external (swappable) system + extraction prompt files."""
+    system_prompt = (_PROMPTS_DIR / "system_prompt.md").read_text(encoding="utf-8")
+    extraction_template = (
+        _PROMPTS_DIR / "extraction_prompt.md"
+    ).read_text(encoding="utf-8")
+    return system_prompt, extraction_template
+
+
+def build_response_format(mode: str):
+    """Build the OpenAI ``response_format`` for structured output.
+
+    For ``json_schema`` returns a strict schema matching what
+    :func:`parse_response` / :func:`render_markdown` consume; otherwise ``None``
+    (plain text)."""
+    if mode != "json_schema":
+        return None
+
+    trace = {
+        "type": "object",
+        "properties": {
+            "timestamp": {"type": ["string", "null"]},
+            "segment_index": {"type": ["integer", "null"]},
+        },
+        "required": ["timestamp", "segment_index"],
+        "additionalProperties": False,
+    }
+    requirement = {
+        "type": "object",
+        "properties": {
+            "id": {"type": "string"},
+            "text": {"type": "string"},
+            "source_video_id": {"type": "string"},
+            "trace": trace,
+        },
+        "required": ["id", "text", "source_video_id", "trace"],
+        "additionalProperties": False,
+    }
+    feature = {
+        "type": "object",
+        "properties": {
+            "code": {"type": "string"},
+            "title": {"type": "string"},
+            "requirements": {"type": "array", "items": requirement},
+        },
+        "required": ["code", "title", "requirements"],
+        "additionalProperties": False,
+    }
+    module = {
+        "type": "object",
+        "properties": {
+            "code": {"type": "string"},
+            "title": {"type": "string"},
+            "features": {"type": "array", "items": feature},
+        },
+        "required": ["code", "title", "features"],
+        "additionalProperties": False,
+    }
+    schema = {
+        "type": "object",
+        "properties": {
+            "summary": {"type": "string"},
+            "modules": {"type": "array", "items": module},
+            "assumptions": {"type": "array", "items": {"type": "string"}},
+            "open_questions": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": ["summary", "modules", "assumptions", "open_questions"],
+        "additionalProperties": False,
+    }
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "requirements_document",
+            "strict": True,
+            "schema": schema,
+        },
+    }
+
+
+def call_openai(client, config: dict, system_prompt: str, user_prompt: str):
+    """Call OpenAI chat completions with the resolved config, retrying on error.
+
+    Returns the raw response (consumed by :func:`parse_response`)."""
+    response_format = build_response_format(config["response_format"])
+    last_exc = None
+    for _ in range(max(1, config["retries"])):
+        try:
+            kwargs = {
+                "model": config["model"],
+                "temperature": config["temperature"],
+                "max_tokens": config["max_tokens"],
+                "timeout": config["timeout"],
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+            }
+            if response_format is not None:
+                kwargs["response_format"] = response_format
+            return client.chat.completions.create(**kwargs)
+        except Exception as exc:  # noqa: BLE001 - retry on any API error
+            last_exc = exc
+    raise RuntimeError(
+        f"OpenAI request failed after {config['retries']} attempt(s): {last_exc}"
+    )
+
+
+def process_artifact(path, config, system_prompt, template, client):
+    """Full per-artifact flow: load -> fill prompt -> OpenAI -> parse -> render.
+
+    Returns ``(artifact, doc, markdown)``."""
+    artifact = load_artifact(path)
+    user_prompt = fill_prompt(template, artifact)
+    response = call_openai(client, config, system_prompt, user_prompt)
+    doc = parse_response(response)
+    markdown = render_markdown(doc, artifact)
+    return artifact, doc, markdown
+
+
+def write_outputs(artifact_path, artifact, doc, markdown, out_dir, no_save):
+    """Write ``<video_id>.requirements.json`` + ``.md`` (or print when no_save)."""
+    video = artifact.get("video") if isinstance(artifact, dict) else None
+    video_id = (video or {}).get("id") or pathlib.Path(artifact_path).stem
+
+    if no_save:
+        print(markdown)
+        return
+
+    target_dir = pathlib.Path(out_dir) if out_dir else pathlib.Path(artifact_path).parent
+    target_dir.mkdir(parents=True, exist_ok=True)
+    (target_dir / f"{video_id}.requirements.json").write_text(
+        json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    (target_dir / f"{video_id}.requirements.md").write_text(
+        markdown, encoding="utf-8"
+    )
+
+
+def _build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="extract_requirements.py",
+        description=(
+            "Turn a Skill 1 video artifact (or collection) into a "
+            "Module->Feature->Requirement document (OpenAI engine)."
+        ),
+    )
+    parser.add_argument("input", help="Artifact JSON path or a collection directory.")
+    parser.add_argument("--engine", choices=["claude", "openai"], default="claude",
+                        help="Engine; the script implements only 'openai'.")
+    parser.add_argument("--model", default=None)
+    parser.add_argument("--temperature", default=None)
+    parser.add_argument("--max-tokens", dest="max_tokens", default=None)
+    parser.add_argument("--response-format", dest="response_format",
+                        choices=["json_schema", "text"], default=None)
+    parser.add_argument("--timeout", default=None)
+    parser.add_argument("--retries", default=None)
+    parser.add_argument("--concurrency", default=None)
+    parser.add_argument("--out-dir", dest="out_dir", default=None)
+    save_group = parser.add_mutually_exclusive_group()
+    save_group.add_argument("--no-save", action="store_true")
+    save_group.add_argument("--print", dest="print_", action="store_true")
+    return parser
+
+
+def main(argv=None) -> int:
+    load_dotenv()
+    args = _build_arg_parser().parse_args(argv)
+
+    if args.engine == "claude":
+        print(
+            "The Claude-native engine is driven by this skill's SKILL.md in-chat, "
+            "not by this script. Re-run with --engine openai to use the OpenAI API "
+            "engine."
+        )
+        return 0
+
+    cli = {
+        "model": args.model,
+        "temperature": args.temperature,
+        "max_tokens": args.max_tokens,
+        "response_format": args.response_format,
+        "timeout": args.timeout,
+        "retries": args.retries,
+        "concurrency": args.concurrency,
+    }
+    cli = {key: value for key, value in cli.items() if value is not None}
+    config = resolve_config(cli, dict(os.environ))
+
+    try:
+        api_key = require_api_key(dict(os.environ))
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    client = OpenAI(api_key=api_key, timeout=config["timeout"])
+    system_prompt, template = load_prompt_files()
+    inputs = resolve_inputs(args.input)
+    no_save = args.no_save or args.print_
+
+    def _work(path):
+        artifact, doc, markdown = process_artifact(
+            path, config, system_prompt, template, client
+        )
+        write_outputs(path, artifact, doc, markdown, args.out_dir, no_save)
+        return path
+
+    if config["concurrency"] > 1 and len(inputs) > 1 and not no_save:
+        with ThreadPoolExecutor(max_workers=config["concurrency"]) as executor:
+            list(executor.map(_work, inputs))
+    else:
+        for path in inputs:
+            _work(path)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

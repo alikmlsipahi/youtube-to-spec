@@ -10,9 +10,16 @@ per-video JSON + readable Markdown, with per-collection manifests.
 Phase 1 — pure helpers (T-S1-01..04). Remaining functions are added by later units.
 """
 
+import argparse
 import json
 import re
 import subprocess
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+from youtube_transcript_api import YouTubeTranscriptApi
 
 
 def extract_video_id(url_or_id: str) -> str:
@@ -342,3 +349,327 @@ def fetch_metadata(video_id: str) -> dict | None:
         return json.loads(result.stdout)
     except Exception:
         return None
+
+
+# ---------------------------------------------------------------------------
+# Orchestration layer (additive glue; wires the pure helpers above into an
+# end-to-end CLI). No existing function above is modified.
+# ---------------------------------------------------------------------------
+
+_TOOL_VERSIONS_CACHE = None
+
+
+def _tool_versions() -> dict:
+    """Best-effort capture of the tool versions used, cached for the run."""
+    global _TOOL_VERSIONS_CACHE
+    if _TOOL_VERSIONS_CACHE is not None:
+        return _TOOL_VERSIONS_CACHE
+    versions = {"yt_dlp": None, "youtube_transcript_api": None}
+    try:
+        result = subprocess.run(
+            ["yt-dlp", "--version"], capture_output=True, text=True
+        )
+        if result.returncode == 0:
+            versions["yt_dlp"] = result.stdout.strip()
+    except Exception:
+        pass
+    try:
+        from importlib.metadata import version
+
+        versions["youtube_transcript_api"] = version("youtube-transcript-api")
+    except Exception:
+        pass
+    _TOOL_VERSIONS_CACHE = versions
+    return versions
+
+
+def _empty_transcript_block() -> dict:
+    """A canonical transcript block for the no-transcript / skipped case."""
+    return {
+        "available": False,
+        "selected": None,
+        "available_tracks": [],
+        "segment_count": 0,
+        "segments": [],
+    }
+
+
+def enumerate_playlist(url: str) -> dict | None:
+    """List a playlist's ordered members via yt-dlp `--flat-playlist`.
+
+    Returns ``{id, title, uploader, entries[], hidden_unavailable_count}`` (entries
+    are ``{id, title}`` in playlist order), or ``None`` on failure. yt-dlp omits
+    hidden/unavailable members from the flat list and warns on stderr; that count
+    is recovered via :func:`parse_hidden_unavailable`. Uses subprocess for per-run
+    isolation and stable JSON, consistent with :func:`fetch_metadata`.
+    """
+    try:
+        result = subprocess.run(
+            ["yt-dlp", "--flat-playlist", "--dump-single-json", url],
+            capture_output=True,
+            text=True,
+        )
+    except Exception:
+        return None
+    if result.returncode != 0:
+        return None
+    try:
+        data = json.loads(result.stdout)
+    except Exception:
+        return None
+
+    entries = []
+    for entry in data.get("entries") or []:
+        if not isinstance(entry, dict):
+            continue
+        entries.append({"id": entry.get("id"), "title": entry.get("title")})
+
+    return {
+        "id": data.get("id"),
+        "title": data.get("title"),
+        "uploader": data.get("uploader") or data.get("channel"),
+        "entries": entries,
+        "hidden_unavailable_count": parse_hidden_unavailable(result.stderr or ""),
+    }
+
+
+def fetch_transcript(video_id: str, langs) -> dict:
+    """Fetch and assemble the canonical ``transcript{}`` block for one video.
+
+    Lists the available tracks, picks one via :func:`select_transcript_track`,
+    fetches its snippets, and builds addressable segments via
+    :func:`build_segments`. Never raises — any failure (transcripts disabled, none
+    found, network error) degrades to an ``available: False`` block so the batch
+    continues.
+    """
+    try:
+        track_list = list(YouTubeTranscriptApi().list(video_id))
+    except Exception:
+        return _empty_transcript_block()
+
+    selected_track, info = select_transcript_track(track_list, langs)
+    if selected_track is None:
+        block = _empty_transcript_block()
+        block["available_tracks"] = info["available_tracks"]
+        return block
+
+    try:
+        snippets = selected_track.fetch()
+        segments = build_segments(snippets)
+    except Exception:
+        block = _empty_transcript_block()
+        block["available_tracks"] = info["available_tracks"]
+        return block
+
+    return {
+        "available": True,
+        "selected": info["selected"],
+        "available_tracks": info["available_tracks"],
+        "segment_count": len(segments),
+        "segments": segments,
+    }
+
+
+def artifact_basename(video_id: str) -> str:
+    """Centralized per-video artifact basename (one edit point for layout changes)."""
+    return video_id
+
+
+def build_artifact(meta: dict, transcript_block: dict, collection_block) -> dict:
+    """Assemble one canonical per-video artifact dict from its parts."""
+    return {
+        "schema_version": "1.0",
+        "kind": "video_artifact",
+        "extracted_at": datetime.now(timezone.utc).isoformat(),
+        "video": build_video_block(meta),
+        "collection": collection_block,
+        "transcript": transcript_block,
+        "extraction": {
+            "metadata_ok": meta is not None,
+            "transcript_ok": bool(transcript_block.get("available")),
+            "warnings": [],
+            "tool_versions": _tool_versions(),
+        },
+    }
+
+
+def write_artifacts(artifact: dict, out_dir: Path, fmt: str) -> dict:
+    """Write the per-video ``.json`` and/or ``.md`` files; return the manifest
+    ``files{json,md}`` descriptor (each name or ``None``)."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    base = artifact_basename(artifact["video"]["id"])
+    files = {"json": None, "md": None}
+    if fmt in ("json", "both"):
+        path = out_dir / f"{base}.json"
+        path.write_text(
+            json.dumps(artifact, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        files["json"] = path.name
+    if fmt in ("md", "both"):
+        path = out_dir / f"{base}.md"
+        path.write_text(render_markdown(artifact), encoding="utf-8")
+        files["md"] = path.name
+    return files
+
+
+def write_manifest(collection: dict, members: list[dict], out_dir: Path) -> None:
+    """Write ``_manifest.json`` for a collection via :func:`build_manifest`."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    manifest = build_manifest(collection, members)
+    (out_dir / "_manifest.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+def _build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="extract_artifacts.py",
+        description=(
+            "Collect metadata AND timestamped transcripts for one or more videos "
+            "or a playlist into lossless JSON + Markdown artifacts."
+        ),
+    )
+    parser.add_argument("urls", nargs="+", help="Video URLs/IDs or a playlist URL.")
+    parser.add_argument(
+        "--playlist",
+        action="store_true",
+        help="Treat a watch?v=…&list=… URL as the whole playlist.",
+    )
+    parser.add_argument(
+        "--langs",
+        default="tr,en",
+        help="Transcript language preference list (comma-separated).",
+    )
+    parser.add_argument("--out-dir", dest="out_dir", default=None,
+                        help="Override the collection directory name.")
+    parser.add_argument("--root", default="data", help="Output root directory.")
+    save_group = parser.add_mutually_exclusive_group()
+    save_group.add_argument("--no-save", action="store_true",
+                            help="Print artifacts instead of writing files.")
+    save_group.add_argument("--print", dest="print_", action="store_true",
+                            help="Print artifacts instead of writing files.")
+    parser.add_argument("--format", choices=["json", "md", "both"], default="both",
+                        help="Which per-video files to write.")
+    parser.add_argument("--metadata-only", dest="metadata_only", action="store_true",
+                        help="Skip transcript fetching.")
+    parser.add_argument("--skip-existing", dest="skip_existing", action="store_true",
+                        help="Skip videos whose JSON already exists.")
+    parser.add_argument("--sleep-requests", dest="sleep_requests", type=float,
+                        default=0.0, help="Seconds to sleep between videos.")
+    return parser
+
+
+def main(argv=None) -> int:
+    args = _build_arg_parser().parse_args(argv)
+    langs = [s.strip() for s in args.langs.split(",") if s.strip()]
+    print_mode = args.print_ or args.no_save
+    mode = classify_input(args)
+
+    # Build the work list of (video_id, title, position, collection_block).
+    collection_info = None
+    work = []
+    if mode == "playlist":
+        playlist = enumerate_playlist(args.urls[0])
+        if playlist is None:
+            print("Failed to enumerate playlist.", file=sys.stderr)
+            return 1
+        collection_info = {
+            "type": "playlist",
+            "id": playlist["id"],
+            "title": playlist["title"],
+            "uploader": playlist.get("uploader"),
+            "source_url": args.urls[0],
+            "hidden_unavailable_count": playlist.get("hidden_unavailable_count", 0),
+        }
+        total = len(playlist["entries"])
+        for position, entry in enumerate(playlist["entries"], start=1):
+            block = {
+                "type": "playlist",
+                "id": playlist["id"],
+                "title": playlist["title"],
+                "uploader": playlist.get("uploader"),
+                "position": position,
+                "total_members": total,
+            }
+            work.append((entry["id"], entry.get("title"), position, block))
+    else:
+        for raw in args.urls:
+            try:
+                video_id = extract_video_id(raw)
+            except ValueError:
+                print(f"Skipping unrecognized input: {raw}", file=sys.stderr)
+                continue
+            work.append((video_id, None, None, None))
+
+    # Resolve the output directory once.
+    out_dir = Path(args.root)
+    if args.out_dir:
+        out_dir = out_dir / args.out_dir
+    elif collection_info:
+        out_dir = out_dir / collection_dir_name(
+            collection_info["title"] or "", collection_info["id"] or ""
+        )
+    else:
+        out_dir = out_dir / "_singles"
+
+    members = []
+    for video_id, title, position, collection_block in work:
+        if args.skip_existing and not print_mode:
+            existing = out_dir / f"{artifact_basename(video_id)}.json"
+            if existing.exists():
+                members.append({
+                    "position": position, "video_id": video_id, "title": title,
+                    "status": "ok", "reason": "skipped (already exists)",
+                    "files": {"json": existing.name, "md": None},
+                    "transcript": None,
+                })
+                continue
+
+        meta = fetch_metadata(video_id)
+        if meta is None:
+            members.append({
+                "position": position, "video_id": video_id, "title": title,
+                "status": "metadata_failed", "reason": "metadata fetch failed",
+                "files": None, "transcript": None,
+            })
+            continue
+
+        if args.metadata_only:
+            transcript_block = _empty_transcript_block()
+        else:
+            transcript_block = fetch_transcript(video_id, langs)
+
+        artifact = build_artifact(meta, transcript_block, collection_block)
+
+        if print_mode:
+            if args.format in ("json", "both"):
+                print(json.dumps(artifact, ensure_ascii=False, indent=2))
+            if args.format in ("md", "both"):
+                print(render_markdown(artifact))
+            files = None
+        else:
+            files = write_artifacts(artifact, out_dir, args.format)
+
+        selected = transcript_block.get("selected") or {}
+        members.append({
+            "position": position, "video_id": video_id,
+            "title": meta.get("title") or title,
+            "status": "ok", "reason": None, "files": files,
+            "transcript": {
+                "available": transcript_block.get("available", False),
+                "language": selected.get("language"),
+                "type": selected.get("type"),
+            },
+        })
+
+        if args.sleep_requests:
+            time.sleep(args.sleep_requests)
+
+    if collection_info and not print_mode:
+        write_manifest(collection_info, members, out_dir)
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
