@@ -17,10 +17,10 @@
 - [green] T-S1-05 — build_video_block
 - [green] T-S1-06 — select_transcript_track
 - [green] T-S1-07 — build_segments
-- [pending] T-S1-08 — render_markdown
-- [pending] T-S1-09 — build_manifest
-- [pending] T-S1-10 — parse_hidden_unavailable
-- [pending] T-S1-11 — graceful degradation (fetch_metadata)
+- [test-written] T-S1-08 — render_markdown
+- [test-written] T-S1-09 — build_manifest
+- [test-written] T-S1-10 — parse_hidden_unavailable
+- [test-written] T-S1-11 — graceful degradation (fetch_metadata)
 
 ## Skill 2 — `feature-requirement-extractor` (unit / blind-TDD)
 

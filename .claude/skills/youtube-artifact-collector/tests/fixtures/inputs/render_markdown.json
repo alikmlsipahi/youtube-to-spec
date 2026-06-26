@@ -1,0 +1,80 @@
+{
+  "cases": [
+    {
+      "name": "full_collection_available_transcript",
+      "artifact": {
+        "schema_version": "1.0",
+        "kind": "video_artifact",
+        "video": {
+          "id": "fl1DSmwQKKY",
+          "url": "https://www.youtube.com/watch?v=fl1DSmwQKKY",
+          "title": "Kayıt Ekranı Tanıtımı",
+          "channel": "Örnek Kanal"
+        },
+        "collection": {
+          "type": "playlist",
+          "id": "PLxyz123",
+          "title": "Kayıt Modülü",
+          "uploader": "Örnek Kanal",
+          "position": 1,
+          "total_members": 4
+        },
+        "transcript": {
+          "available": true,
+          "segments": [
+            { "index": 0, "start": 0.0, "duration": 3.2, "end": 3.2, "text": "Merhaba, kayıt ekranına hoş geldiniz." },
+            { "index": 1, "start": 75.0, "duration": 4.0, "end": 79.0, "text": "Burada öğrenci bilgisi girilir." },
+            { "index": 2, "start": 3600.0, "duration": 2.5, "end": 3602.5, "text": "Bir saati geçen bölüm." },
+            { "index": 3, "start": 3665.0, "duration": 2.0, "end": 3667.0, "text": "Son segment metni." }
+          ]
+        }
+      }
+    },
+    {
+      "name": "true_single_null_collection",
+      "artifact": {
+        "schema_version": "1.0",
+        "kind": "video_artifact",
+        "video": {
+          "id": "abc12345678",
+          "url": "https://youtu.be/abc12345678",
+          "title": "Standalone Video",
+          "channel": "Solo Channel"
+        },
+        "collection": null,
+        "transcript": {
+          "available": true,
+          "segments": [
+            { "index": 0, "start": 0.0, "duration": 2.0, "end": 2.0, "text": "First line here." },
+            { "index": 1, "start": 12.0, "duration": 2.0, "end": 14.0, "text": "Second line here." }
+          ]
+        }
+      }
+    },
+    {
+      "name": "no_transcript_available",
+      "artifact": {
+        "schema_version": "1.0",
+        "kind": "video_artifact",
+        "video": {
+          "id": "noxscriptid0",
+          "url": "https://www.youtube.com/watch?v=noxscriptid0",
+          "title": "No Captions Video",
+          "channel": "Quiet Channel"
+        },
+        "collection": {
+          "type": "playlist",
+          "id": "PLnope",
+          "title": "Sessiz Seri",
+          "uploader": "Quiet Channel",
+          "position": 2,
+          "total_members": 2
+        },
+        "transcript": {
+          "available": false,
+          "segments": []
+        }
+      }
+    }
+  ]
+}

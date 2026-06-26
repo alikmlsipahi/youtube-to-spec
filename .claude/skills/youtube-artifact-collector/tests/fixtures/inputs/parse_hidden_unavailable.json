@@ -1,0 +1,24 @@
+{
+  "cases": [
+    {
+      "name": "single_digit_5_present",
+      "stderr": "[youtube:tab] Extracting URL: https://www.youtube.com/playlist?list=PLxyz123\n[youtube:tab] PLxyz123: Downloading webpage\nWARNING: [youtube:tab] PLxyz123: There are 5 unavailable videos that are hidden from this list.\n[download] Downloading playlist: Kayıt Modülü\n"
+    },
+    {
+      "name": "double_digit_12_present",
+      "stderr": "WARNING: [youtube:tab] PLbig: There are 12 unavailable videos that are hidden from this list.\n"
+    },
+    {
+      "name": "alt_phrasing_5_are_hidden",
+      "stderr": "WARNING: 5 unavailable videos are hidden from this list.\n"
+    },
+    {
+      "name": "no_hidden_warning_other_warnings",
+      "stderr": "[youtube:tab] Extracting URL: https://www.youtube.com/playlist?list=PLclean\nWARNING: [youtube] Falling back to generic n function search\n[download] Downloading playlist: Tam Seri\n"
+    },
+    {
+      "name": "empty_stderr",
+      "stderr": ""
+    }
+  ]
+}
