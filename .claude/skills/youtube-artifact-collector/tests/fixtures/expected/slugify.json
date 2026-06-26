@@ -1,0 +1,22 @@
+{
+  "slugs": [
+    "kayit-modulu",
+    "sinav-yonetimi",
+    "cagri-sube-guncelleme",
+    "ogrenci-isleri",
+    "hello-world",
+    "multiple-spaces",
+    "leading-and-trailing",
+    "modul-1-baslangic"
+  ],
+  "dir_names": [
+    "kayit-modulu-PLabc123",
+    "sinav-yonetimi-PLxyz789",
+    "cagri-sube-guncelleme-PL1",
+    "ogrenci-isleri-PL2",
+    "hello-world-PLh0",
+    "multiple-spaces-PLm",
+    "leading-and-trailing-PLt",
+    "modul-1-baslangic-PLn"
+  ]
+}

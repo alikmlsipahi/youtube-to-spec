@@ -1,0 +1,12 @@
+{
+  "cases": [
+    { "title": "Kayıt Modülü", "playlist_id": "PLabc123" },
+    { "title": "Sınav Yönetimi", "playlist_id": "PLxyz789" },
+    { "title": "Çağrı Şube Güncelleme", "playlist_id": "PL1" },
+    { "title": "Öğrenci İşleri", "playlist_id": "PL2" },
+    { "title": "Hello World", "playlist_id": "PLh0" },
+    { "title": "Multiple   Spaces", "playlist_id": "PLm" },
+    { "title": "  Leading and Trailing  ", "playlist_id": "PLt" },
+    { "title": "Modül #1: Başlangıç", "playlist_id": "PLn" }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "valid": [
+    "https://www.youtube.com/watch?v=fl1DSmwQKKY",
+    "https://youtu.be/fl1DSmwQKKY",
+    "https://www.youtube.com/embed/fl1DSmwQKKY",
+    "https://www.youtube.com/v/fl1DSmwQKKY",
+    "fl1DSmwQKKY",
+    "https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PLabc123&index=2",
+    "https://m.youtube.com/watch?v=dQw4w9WgXcQ",
+    "http://youtube.com/watch?v=abcdefghijk",
+    "dQw4w9WgXcQ"
+  ],
+  "invalid": [
+    "",
+    "not a url",
+    "https://vimeo.com/123456789",
+    "https://www.youtube.com/watch?v=short",
+    "abc",
+    "fl1DSmwQKKY-extra-tail",
+    "https://example.com/watch?v=tooManyChars123"
+  ]
+}

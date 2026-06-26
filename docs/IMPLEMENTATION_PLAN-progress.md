@@ -10,10 +10,10 @@
 
 ## Skill 1 — `youtube-artifact-collector` (unit / blind-TDD)
 
-- [pending] T-S1-01 — extract_video_id
-- [pending] T-S1-02 — format_timestamp
-- [pending] T-S1-03 — classify_input
-- [pending] T-S1-04 — slugify / collection_dir_name
+- [green] T-S1-01 — extract_video_id
+- [green] T-S1-02 — format_timestamp
+- [green] T-S1-03 — classify_input
+- [green] T-S1-04 — slugify / collection_dir_name
 - [pending] T-S1-05 — build_video_block
 - [pending] T-S1-06 — select_transcript_track
 - [pending] T-S1-07 — build_segments
