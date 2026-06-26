@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0",
+  "kind": "video_artifact",
+  "extracted_at": "2026-06-26T10:00:00Z",
+  "video": {
+    "id": "VIDAAAAAAAA",
+    "url": "https://www.youtube.com/watch?v=VIDAAAAAAAA",
+    "title": "Öğrenci Ekleme",
+    "channel": "Örnek Yazılım"
+  },
+  "collection": { "type": "playlist", "id": "PLxyz123", "title": "Kayıt Modülü", "position": 1 },
+  "transcript": {
+    "available": true,
+    "segment_count": 1,
+    "segments": [ { "index": 0, "start": 0.0, "duration": 2.0, "end": 2.0, "text": "Öğrenci ekleme ekranı." } ]
+  }
+}

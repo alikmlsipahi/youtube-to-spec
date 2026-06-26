@@ -1,0 +1,77 @@
+{
+  "artifact": {
+    "schema_version": "1.0",
+    "kind": "video_artifact",
+    "video": {
+      "id": "fl1DSmwQKKY",
+      "url": "https://www.youtube.com/watch?v=fl1DSmwQKKY",
+      "title": "Öğrenci Kayıt Ekranı",
+      "channel": "Örnek Yazılım"
+    },
+    "collection": {
+      "type": "playlist",
+      "id": "PLxyz123",
+      "title": "Kayıt Modülü"
+    }
+  },
+  "doc_source_block": {
+    "video_id": "SOLO0000000",
+    "video_url": "https://www.youtube.com/watch?v=SOLO0000000",
+    "video_title": "Tekil Doküman Videosu",
+    "channel": "Bağımsız Kanal",
+    "collection_title": "(none)"
+  },
+  "valid_doc": {
+    "summary": "Bu video kayıt modülünde öğrenci ekleme akışını ve form doğrulamasını anlatır.",
+    "modules": [
+      {
+        "code": "REG",
+        "title": "Kayıt Modülü",
+        "features": [
+          {
+            "code": "ADD-STU",
+            "title": "Öğrenci Ekleme",
+            "requirements": [
+              {
+                "id": "REG-ADD-STU-001",
+                "text": "Kullanıcı yeni bir öğrenci kaydı oluşturabilmelidir.",
+                "source_video_id": "fl1DSmwQKKY",
+                "trace": { "timestamp": "00:03", "segment_index": 1 }
+              },
+              {
+                "id": "REG-ADD-STU-002",
+                "text": "Form, zorunlu alanlar boş bırakıldığında kaydı engellemelidir.",
+                "source_video_id": "fl1DSmwQKKY",
+                "trace": { "timestamp": "00:07", "segment_index": 2 }
+              }
+            ]
+          },
+          {
+            "code": "SAVE",
+            "title": "Kaydetme",
+            "requirements": [
+              {
+                "id": "REG-SAVE-003",
+                "text": "Form gönderildikten sonra kayıt kalıcı olarak saklanmalıdır.",
+                "source_video_id": "fl1DSmwQKKY",
+                "trace": { "timestamp": "00:10", "segment_index": 3 }
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "assumptions": [
+      "Öğrenci ID değeri sistem tarafından otomatik üretilir."
+    ],
+    "open_questions": [
+      "Toplu öğrenci içe aktarma bu ekranda destekleniyor mu?"
+    ]
+  },
+  "malformed_content": "{ this is not valid json ",
+  "invalid_json_variants": [
+    "not json at all",
+    "{ \"summary\": \"oops\" ",
+    ""
+  ]
+}

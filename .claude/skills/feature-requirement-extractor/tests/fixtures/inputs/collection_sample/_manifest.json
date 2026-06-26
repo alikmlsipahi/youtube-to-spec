@@ -1,0 +1,53 @@
+{
+  "collection": {
+    "type": "playlist",
+    "id": "PLxyz123",
+    "title": "Kayıt Modülü",
+    "uploader": "Örnek Yazılım",
+    "source_url": "https://www.youtube.com/playlist?list=PLxyz123",
+    "hidden_unavailable_count": 0
+  },
+  "members": [
+    {
+      "position": 1,
+      "video_id": "VIDAAAAAAAA",
+      "title": "Öğrenci Ekleme",
+      "status": "ok",
+      "files": { "json": "VIDAAAAAAAA.json", "md": "VIDAAAAAAAA.md" },
+      "transcript": { "available": true, "language": "tr", "type": "auto" }
+    },
+    {
+      "position": 2,
+      "video_id": "VIDFAILED00",
+      "title": "Silinmiş Video",
+      "status": "metadata_failed",
+      "files": null,
+      "transcript": { "available": false, "language": null, "type": null }
+    },
+    {
+      "position": 3,
+      "video_id": "VIDNOFILE00",
+      "title": "Dosyasız Ama OK İşaretli",
+      "status": "ok",
+      "files": null,
+      "transcript": { "available": true, "language": "tr", "type": "manual" }
+    },
+    {
+      "position": 4,
+      "video_id": "VIDBBBBBBBB",
+      "title": "Öğrenci Kaydetme",
+      "status": "ok",
+      "files": { "json": "VIDBBBBBBBB.json", "md": "VIDBBBBBBBB.md" },
+      "transcript": { "available": true, "language": "tr", "type": "manual" }
+    },
+    {
+      "position": 5,
+      "video_id": "VIDSKIP0000",
+      "title": "Özel Video",
+      "status": "skipped_unavailable",
+      "files": null,
+      "transcript": { "available": false, "language": null, "type": null }
+    }
+  ],
+  "summary": { "total": 5, "ok": 3, "failed": 1, "no_transcript": 0 }
+}

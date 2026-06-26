@@ -26,11 +26,11 @@
 
 - [green] T-S2-01 — config resolution (CLI > env > default)
 - [green] T-S2-02 — fill_prompt
-- [pending] T-S2-03 — parse_response / render
+- [test-written] T-S2-03 — parse_response / render
 - [green] T-S2-04 — validate_req_id
 - [green] T-S2-05 — composite-key uniqueness
-- [pending] T-S2-06 — env key loading
-- [pending] T-S2-07 — input resolution
+- [test-written] T-S2-06 — env key loading
+- [test-written] T-S2-07 — input resolution
 
 ## Authoring (Phase C — non-blind; prose/assets; test-denylist still applies)
 
