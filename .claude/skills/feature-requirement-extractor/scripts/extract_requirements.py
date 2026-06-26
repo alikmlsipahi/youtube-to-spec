@@ -11,6 +11,8 @@ Phase 1 — pure helpers (T-S2-01, T-S2-02, T-S2-04, T-S2-05). The OpenAI call,
 rendering, and CLI are added by later units.
 """
 
+import json
+import pathlib
 import re
 
 # --- T-S2-01: config resolution (CLI > env > default) ----------------------
@@ -156,3 +158,232 @@ def dedupe_requirements(requirements: list[dict]) -> list[dict]:
         seen.add(key)
         result.append(req)
     return result
+
+
+# --- T-S2-03: parse_response / render_markdown -----------------------------
+
+def parse_response(response) -> dict:
+    """Turn a captured OpenAI ``json_schema`` chat-completion response into the
+    canonical structured requirements document (the "mirrored JSON").
+
+    Reads ``response.choices[0].message.content`` (a JSON string) and parses it.
+    Raises a clear, secret-safe ``ValueError`` when the response cannot yield a
+    document (no choices, refusal/empty content, or invalid JSON). Pure: no I/O,
+    no network, never mutates ``response``.
+    """
+    choices = getattr(response, "choices", None)
+    if not choices:
+        raise ValueError("OpenAI response has no choices to parse")
+
+    message = getattr(choices[0], "message", None)
+    content = getattr(message, "content", None) if message is not None else None
+    if content is None or (isinstance(content, str) and content.strip() == ""):
+        raise ValueError(
+            "OpenAI response has empty/no content (possible refusal); "
+            "cannot parse a requirements document"
+        )
+
+    try:
+        doc = json.loads(content)
+    except (ValueError, TypeError) as exc:
+        raise ValueError(
+            f"OpenAI response content is not valid JSON: {exc}"
+        ) from None
+
+    if not isinstance(doc, dict):
+        raise ValueError(
+            "OpenAI response content did not decode to a JSON object"
+        )
+    return doc
+
+
+def _header_fields(doc: dict, artifact: dict | None) -> dict:
+    """Resolve source-header fields from the artifact when supplied, else from
+    ``doc['source']``. Missing values degrade to empty strings."""
+    title = url = channel = collection = ""
+    if isinstance(artifact, dict):
+        video = artifact.get("video")
+        if isinstance(video, dict):
+            title = video.get("title") or ""
+            url = video.get("url") or ""
+            channel = video.get("channel") or ""
+        coll = artifact.get("collection")
+        if isinstance(coll, dict):
+            collection = coll.get("title") or ""
+    else:
+        source = doc.get("source") if isinstance(doc, dict) else None
+        if isinstance(source, dict):
+            title = source.get("title") or source.get("video_title") or ""
+            url = source.get("url") or source.get("video_url") or ""
+            channel = source.get("channel") or ""
+            collection = (
+                source.get("collection")
+                or source.get("collection_title")
+                or ""
+            )
+    return {
+        "title": str(title),
+        "url": str(url),
+        "channel": str(channel),
+        "collection": str(collection),
+    }
+
+
+def render_markdown(doc: dict, artifact: dict | None = None) -> str:
+    """Render the structured requirements document as Markdown — source header,
+    mini-summary, Module->Feature->Requirements (ids, text, trace), Assumptions,
+    Open Questions. Pure; never mutates ``doc`` or ``artifact``. Missing optional
+    fields degrade gracefully (no literal ``None`` text)."""
+    header = _header_fields(doc, artifact)
+    lines = []
+
+    title = header["title"] or "(untitled)"
+    lines.append(f"# {title}")
+    lines.append("")
+    lines.append(f"- **URL:** {header['url']}")
+    lines.append(f"- **Channel:** {header['channel']}")
+    lines.append(f"- **Collection:** {header['collection']}")
+    lines.append("")
+
+    summary = doc.get("summary") if isinstance(doc, dict) else None
+    lines.append("## Summary")
+    lines.append("")
+    lines.append(str(summary) if summary else "")
+    lines.append("")
+
+    lines.append("## Requirements")
+    lines.append("")
+    modules = doc.get("modules") if isinstance(doc, dict) else None
+    for module in modules or []:
+        if not isinstance(module, dict):
+            continue
+        code = module.get("code") or ""
+        m_title = module.get("title")
+        heading = f"### {code}" + (f" — {m_title}" if m_title else "")
+        lines.append(heading)
+        lines.append("")
+        for feature in module.get("features") or []:
+            if not isinstance(feature, dict):
+                continue
+            f_code = feature.get("code") or ""
+            f_title = feature.get("title")
+            f_heading = f"#### {f_code}" + (f" — {f_title}" if f_title else "")
+            lines.append(f_heading)
+            lines.append("")
+            for req in feature.get("requirements") or []:
+                if not isinstance(req, dict):
+                    continue
+                rid = req.get("id") or ""
+                text = req.get("text") or ""
+                trace = req.get("trace")
+                trace_parts = []
+                if isinstance(trace, dict):
+                    ts = trace.get("timestamp")
+                    seg = trace.get("segment_index")
+                    if ts is not None:
+                        trace_parts.append(f"timestamp {ts}")
+                    if seg is not None:
+                        trace_parts.append(f"segment {seg}")
+                trace_str = f" _(trace: {', '.join(trace_parts)})_" if trace_parts else ""
+                lines.append(f"- **{rid}**: {text}{trace_str}")
+            lines.append("")
+
+    lines.append("## Assumptions")
+    lines.append("")
+    assumptions = doc.get("assumptions") if isinstance(doc, dict) else None
+    for item in assumptions or []:
+        lines.append(f"- {item}")
+    lines.append("")
+
+    lines.append("## Open Questions")
+    lines.append("")
+    open_questions = doc.get("open_questions") if isinstance(doc, dict) else None
+    for item in open_questions or []:
+        lines.append(f"- {item}")
+    lines.append("")
+
+    return "\n".join(lines)
+
+
+# --- T-S2-06: require_api_key ----------------------------------------------
+
+def require_api_key(env: dict) -> str:
+    """Return ``OPENAI_API_KEY`` from ``env`` (whitespace-trimmed) when present
+    and non-blank; otherwise raise a clear, secret-safe ``RuntimeError`` naming
+    the variable and the remediation. Pure: reads only ``env``, never mutates it,
+    no os.environ / file / network access."""
+    value = env.get("OPENAI_API_KEY") if isinstance(env, dict) else None
+    if value is not None and str(value).strip() != "":
+        return str(value).strip()
+    raise RuntimeError(
+        "OPENAI_API_KEY is not set. Add it to your .env file or the environment "
+        "before running the OpenAI engine."
+    )
+
+
+# --- T-S2-07: resolve_inputs / load_artifact -------------------------------
+
+def resolve_inputs(path) -> list:
+    """Decide whether ``path`` is a single artifact file or a collection folder
+    and return the ordered list of artifact JSON paths to process.
+
+    Single file -> ``[path]``. Directory -> read ``_manifest.json`` and keep
+    members with ``status == 'ok'`` that carry a usable ``files.json``, in member
+    order. Raises a clear error for a non-existent path or a directory without a
+    usable manifest. Read-only."""
+    p = pathlib.Path(path)
+    if not p.exists():
+        raise FileNotFoundError(f"Input path does not exist: {p}")
+
+    if p.is_file():
+        return [p]
+
+    manifest_path = p / "_manifest.json"
+    if not manifest_path.is_file():
+        raise FileNotFoundError(
+            f"No _manifest.json found in collection directory: {p}"
+        )
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (ValueError, OSError) as exc:
+        raise ValueError(
+            f"Could not read _manifest.json in {p}: {exc}"
+        ) from None
+
+    results = []
+    members = manifest.get("members") if isinstance(manifest, dict) else None
+    for member in members or []:
+        if not isinstance(member, dict):
+            continue
+        if member.get("status") != "ok":
+            continue
+        files = member.get("files")
+        if not isinstance(files, dict):
+            continue
+        json_name = files.get("json")
+        if not json_name:
+            continue
+        results.append(p / json_name)
+    return results
+
+
+def load_artifact(path) -> dict:
+    """Read one ``<video_id>.json`` artifact (UTF-8) and return it as a dict.
+
+    Defensive ``schema_version`` read: a missing or unknown version does not
+    raise. A genuinely unreadable/non-JSON file raises a clear error. Read-only;
+    never mutates; never hits the network."""
+    p = pathlib.Path(path)
+    try:
+        raw = p.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ValueError(f"Could not read artifact file {p}: {exc}") from None
+    try:
+        data = json.loads(raw)
+    except ValueError as exc:
+        raise ValueError(
+            f"Artifact file {p} is not valid JSON: {exc}"
+        ) from None
+    if not isinstance(data, dict):
+        raise ValueError(f"Artifact file {p} did not decode to a JSON object")
+    return data
