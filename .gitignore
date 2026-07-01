@@ -34,6 +34,7 @@ output/
 data/
 *.log
 
-# Local-only backups (kept on disk, never committed)
+# Local-only (kept on disk, never committed)
 *.backup.md
 README.backup.md
+CLAUDE.md
