@@ -12,7 +12,7 @@ import pytest
 
 from conftest import SKILL1_SCRIPT
 
-VIDEO_ID = "fl1DSmwQKKY"  # known public how-to video with a Turkish auto transcript
+VIDEO_ID = "jNQXAC9IVRw"  # "Me at the zoo" — a stable public video with auto captions
 
 
 @pytest.mark.integration

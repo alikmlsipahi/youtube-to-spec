@@ -60,7 +60,7 @@ satisfying the "JSON mirrors the doc" and "engine-agnostic same shape" requireme
             {
               "id": "REG-ADD-STU-001",          // <MODULE>-<FEATURE>-<NNN>
               "text": "…requirement statement…",
-              "source_video_id": "fl1DSmwQKKY",
+              "source_video_id": "EXAMPLE1234",
               "trace": { "timestamp": "00:03", "segment_index": 1 }
             }
           ]

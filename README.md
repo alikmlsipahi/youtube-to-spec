@@ -63,14 +63,14 @@ videos, or an entire playlist, into lossless per-video `JSON` + readable `Markdo
 
 ```bash
 # Single video → data/_singles/<video_id>.json + .md
-uv run skills/youtube-artifact-collector/scripts/extract_artifacts.py fl1DSmwQKKY
+uv run skills/youtube-artifact-collector/scripts/extract_artifacts.py EXAMPLE1234
 
 # Whole playlist → data/<slug>-<playlist_id>/ with a _manifest.json
 uv run skills/youtube-artifact-collector/scripts/extract_artifacts.py \
   "https://www.youtube.com/playlist?list=PL..." --playlist
 
 # Inspect one video without writing files
-uv run skills/youtube-artifact-collector/scripts/extract_artifacts.py fl1DSmwQKKY --print
+uv run skills/youtube-artifact-collector/scripts/extract_artifacts.py EXAMPLE1234 --print
 ```
 
 Key flags: `--playlist`, `--langs tr,en`, `--metadata-only`, `--skip-existing`, `--format json|md|both`,
@@ -90,7 +90,7 @@ Two interchangeable engines emit the **same** shape:
 ```bash
 # OpenAI engine (needs OPENAI_API_KEY in .env — see skills/spec-distiller/.env.example)
 uv run skills/spec-distiller/scripts/extract_requirements.py \
-  data/_singles/fl1DSmwQKKY.json --engine openai --print
+  data/_singles/EXAMPLE1234.json --engine openai --print
 ```
 
 Every requirement has a stable id `<MODULE>-<FEATURE>-<NNN>` and a `trace` to a real transcript

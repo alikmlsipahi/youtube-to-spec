@@ -91,7 +91,7 @@ Consequences that must hold:
 {
   "id": "REG-ADD-001",            // <MODULE>-<FEATURE>-<NNN>; video-local NNN
   "text": "…",
-  "source_video_id": "fl1DSmwQKKY",
+  "source_video_id": "EXAMPLE1234",
   "trace": { "timestamp": "01:15", "segment_index": 12 }
 }
 ```

@@ -628,12 +628,12 @@ C3: skills/feature-requirement-extractor/SKILL.md
 ```
 Run integration tests for Skill 1. Execute these in order:
 
-B1: uv run skills/youtube-artifact-collector/scripts/extract_artifacts.py fl1DSmwQKKY --print
+B1: uv run skills/youtube-artifact-collector/scripts/extract_artifacts.py EXAMPLE1234 --print
 Expected: 60 Turkish auto segments, selected.type:"auto", available_tracks=[tr], full metadata.
 Verify and report.
 
 B2: Run same WITHOUT --print.
-Expected: data/_singles/fl1DSmwQKKY.json + .md created. Segments carry index field.
+Expected: data/_singles/EXAMPLE1234.json + .md created. Segments carry index field.
 Verify file exists and structure.
 
 B3: Run on playlist URL: https://www.youtube.com/playlist?list=PLxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
@@ -655,7 +655,7 @@ Update: A-01 → [accepted], SK1-DOC → [accepted]
 #### B5-B6 — SESSION (Skill 2 Integration)
 
 ```
-B5: Use Claude-native engine — point at data/_singles/fl1DSmwQKKY.json.
+B5: Use Claude-native engine — point at data/_singles/EXAMPLE1234.json.
 Read prompts/extraction_prompt.md and templates/requirement_doc.md.
 Produce filled requirement doc with <MODULE>-<FEATURE>-NNN codes + traces.
 Verify codes match pattern, traces reference real segment times.
@@ -722,7 +722,7 @@ Tüm satırlar ve beklenen final durumları:
 - [accepted] SK2-DOC — feature-requirement-extractor/SKILL.md
 
 ## Integration
-- [accepted] I-01 — Skill 1 single video (fl1DSmwQKKY)
+- [accepted] I-01 — Skill 1 single video (EXAMPLE1234)
 - [accepted] I-02 — Skill 1 playlist + graceful degradation
 - [accepted] I-03 — Skill 2 OpenAI engine
 

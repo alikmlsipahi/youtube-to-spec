@@ -28,6 +28,6 @@
   "embedding": [
     { "req_id": "ABC-VID0-001", "video_id": "VID0", "expected": false },
     { "req_id": "ABC-ADD-001", "video_id": "VID0", "expected": true },
-    { "req_id": "REG-ADD-001", "video_id": "fl1DSmwQKKY", "expected": true }
+    { "req_id": "REG-ADD-001", "video_id": "EXAMPLE1234", "expected": true }
   ]
 }

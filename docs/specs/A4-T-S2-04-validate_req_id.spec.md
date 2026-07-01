@@ -23,7 +23,7 @@ malformed input — a non-matching string simply returns `False`).
 ## Inputs
 
 - `req_id: str` — the candidate requirement id, e.g. `"REG-ADD-STU-001"`.
-- `video_id: str | None` — optional source video id (e.g. `"fl1DSmwQKKY"`). When provided, the validator
+- `video_id: str | None` — optional source video id (e.g. `"EXAMPLE1234"`). When provided, the validator
   additionally enforces that the requirement id does **not** contain the video id as a substring (the
   scheme keeps `video_id` out of the code; it lives only in the `trace{}` / `source_video_id`).
 
