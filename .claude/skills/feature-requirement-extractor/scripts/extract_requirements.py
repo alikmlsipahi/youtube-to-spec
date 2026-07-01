@@ -312,6 +312,81 @@ def render_markdown(doc: dict, artifact: dict | None = None) -> str:
     return "\n".join(lines)
 
 
+# --- Post-parse hardening: trace.segment_index must address a real segment --
+
+def normalize_trace_indexes(doc: dict, artifact: dict | None) -> dict:
+    """Ensure every requirement's ``trace.segment_index`` addresses a real
+    transcript segment index, mutating ``doc`` in place.
+
+    LLM output sometimes carries a segment's *start time in seconds* where an
+    index belongs (e.g. ``segment_index: 104`` for a segment that starts at
+    104.84s). Rules, applied per requirement trace:
+
+    - A value already equal to a real segment index is kept.
+    - A ``None``/absent ``segment_index`` is left as-is (traces are optional).
+    - Otherwise the value is treated as a start-second and remapped to the
+      matching segment **only when exactly one** segment starts within that whole
+      second; an unresolvable or ambiguous value raises ``ValueError``.
+    - A non-integer ``segment_index`` raises ``ValueError``.
+
+    A missing/empty transcript disables validation (nothing to resolve against).
+    Returns ``doc``.
+    """
+    segments = None
+    if isinstance(artifact, dict):
+        transcript = artifact.get("transcript")
+        if isinstance(transcript, dict):
+            segments = transcript.get("segments")
+    if not segments:
+        return doc
+
+    valid_indexes = set()
+    by_start_second: dict[int, list] = {}
+    for seg in segments:
+        if not isinstance(seg, dict):
+            continue
+        idx = seg.get("index")
+        if isinstance(idx, bool) or not isinstance(idx, int):
+            continue
+        valid_indexes.add(idx)
+        start = seg.get("start")
+        if isinstance(start, (int, float)) and not isinstance(start, bool):
+            by_start_second.setdefault(int(start), []).append(idx)
+
+    for module in doc.get("modules") or []:
+        if not isinstance(module, dict):
+            continue
+        for feature in module.get("features") or []:
+            if not isinstance(feature, dict):
+                continue
+            for req in feature.get("requirements") or []:
+                if not isinstance(req, dict):
+                    continue
+                trace = req.get("trace")
+                if not isinstance(trace, dict):
+                    continue
+                seg_index = trace.get("segment_index")
+                if seg_index is None or isinstance(seg_index, bool):
+                    continue
+                if not isinstance(seg_index, int):
+                    raise ValueError(
+                        f"requirement {req.get('id')!r}: trace.segment_index "
+                        f"{seg_index!r} is not an integer segment index"
+                    )
+                if seg_index in valid_indexes:
+                    continue
+                candidates = by_start_second.get(seg_index, [])
+                if len(candidates) == 1:
+                    trace["segment_index"] = candidates[0]
+                    continue
+                raise ValueError(
+                    f"requirement {req.get('id')!r}: trace.segment_index "
+                    f"{seg_index} does not resolve to a transcript segment "
+                    f"({'ambiguous start-second' if candidates else 'no match'})"
+                )
+    return doc
+
+
 # --- T-S2-06: require_api_key ----------------------------------------------
 
 def require_api_key(env: dict) -> str:
@@ -519,6 +594,7 @@ def process_artifact(path, config, system_prompt, template, client):
     user_prompt = fill_prompt(template, artifact)
     response = call_openai(client, config, system_prompt, user_prompt)
     doc = parse_response(response)
+    normalize_trace_indexes(doc, artifact)
     markdown = render_markdown(doc, artifact)
     return artifact, doc, markdown
 
