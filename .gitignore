@@ -33,3 +33,7 @@ Thumbs.db
 output/
 data/
 *.log
+
+# Local-only backups (kept on disk, never committed)
+*.backup.md
+README.backup.md

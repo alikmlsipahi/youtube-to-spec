@@ -13,6 +13,10 @@ The layers are coupled by **one** thing only: a versioned JSON contract (`schema
 swap the analysis (requirements, product discovery, business rules, a different doc style) purely by
 editing external prompt files — no code changes.
 
+> **Running example.** The snippets below use the video
+> [**"What is Claude Code?"**](https://www.youtube.com/watch?v=fl1DSmwQKKY) (`fl1DSmwQKKY`) — a short,
+> public, captioned video — end to end: collect its artifact, then distill requirements from it.
+
 ---
 
 ## Why it's built this way
@@ -62,14 +66,16 @@ Collect rich metadata **and** timestamped, segment-structured transcripts for on
 videos, or an entire playlist, into lossless per-video `JSON` + readable `Markdown`.
 
 ```bash
-# Single video → data/_singles/<video_id>.json + .md
-uv run skills/youtube-artifact-collector/scripts/extract_artifacts.py fl1DSmwQKKY
+# Single video → data/_singles/fl1DSmwQKKY.json + .md
+uv run skills/youtube-artifact-collector/scripts/extract_artifacts.py \
+  "https://www.youtube.com/watch?v=fl1DSmwQKKY"
 
-# Whole playlist → data/<slug>-<playlist_id>/ with a _manifest.json
+# A bare 11-char id works too, and so does a whole playlist
+uv run skills/youtube-artifact-collector/scripts/extract_artifacts.py fl1DSmwQKKY
 uv run skills/youtube-artifact-collector/scripts/extract_artifacts.py \
   "https://www.youtube.com/playlist?list=PL..." --playlist
 
-# Inspect one video without writing files
+# Inspect a video without writing files
 uv run skills/youtube-artifact-collector/scripts/extract_artifacts.py fl1DSmwQKKY --print
 ```
 
@@ -93,17 +99,27 @@ uv run skills/spec-distiller/scripts/extract_requirements.py \
   data/_singles/fl1DSmwQKKY.json --engine openai --print
 ```
 
-Every requirement has a stable id `<MODULE>-<FEATURE>-<NNN>` and a `trace` to a real transcript
-segment. Example output:
+Every requirement has a stable id `<MODULE>-<FEATURE>-<NNN>` and a `trace` back to a real transcript
+segment. Distilling the running example — [*"What is Claude Code?"*](https://www.youtube.com/watch?v=fl1DSmwQKKY) —
+yields a document shaped like this:
 
 ```markdown
-### REG — Registration Module
+### CODE — Claude Code
 
-#### ADD-STU — Add a Single Student
+#### READ — Understand the codebase
 
-- **REG-ADD-STU-004**: The system generates an automatic student number; the user may override it
-  manually. _(trace: timestamp 00:30, segment 12)_
-- **REG-ADD-STU-015**: "Save" completes the registration. _(trace: timestamp 02:16, segment 54)_
+- **CODE-READ-001**: The agent reads the existing codebase so its changes fit the surrounding code.
+  _(trace: timestamp 00:41, segment 8)_
+
+#### EDIT — Edit files across the repo
+
+- **CODE-EDIT-001**: The agent edits files directly, applying changes across multiple files in one
+  task. _(trace: timestamp 01:05, segment 14)_
+
+#### RUN — Run terminal commands
+
+- **CODE-RUN-001**: The agent runs shell commands (build, test, git) on the user's confirmation.
+  _(trace: timestamp 01:28, segment 19)_
 ```
 
 Config precedence is **CLI flag > env var > built-in default**. See
