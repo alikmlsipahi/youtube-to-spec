@@ -14,6 +14,22 @@ flowchart LR
 
 ---
 
+## When to use it
+
+Any time knowledge is trapped in video and you need it in a structured, reviewable form:
+
+- **Product & feature documentation** — turn product demo or walkthrough videos into a requirements doc your team can review, prioritize, and track.
+- **Reverse-engineering a legacy system** — if the only documentation is tutorial videos, run them through the pipeline to extract what the system actually does.
+- **User research synthesis** — record user interview or usability test sessions, upload to YouTube (unlisted), then distil them into feature requests with timestamps pointing to the exact moment the user said it.
+- **Onboarding knowledge base** — convert a playlist of onboarding or training videos into a structured reference document new team members can search.
+- **Competitive analysis** — run competitor product demo videos through the pipeline to get a structured feature list you can compare against your own backlog.
+- **Conference & webinar notes** — distil a talk or panel into a Module→Feature→Requirement structure, so key points are addressable rather than buried in a recording.
+- **QA & test scenario extraction** — extract what behaviors a demo video shows; use the output as a starting point for test cases, each linked to the source moment.
+
+The pipeline doesn't care about domain — swap the prompt files in `skills/spec-distiller/prompts/` and the output adapts to your terminology.
+
+---
+
 ## The two skills
 
 **Skill 1 — `youtube-artifact-collector`**
