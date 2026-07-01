@@ -1,5 +1,5 @@
 <!--
-  Output document skeleton for the feature-requirement-extractor.
+  Output document skeleton for the spec-distiller.
 
   Both engines emit the SAME shape:
    - The OpenAI engine generates this layout programmatically (render_markdown).

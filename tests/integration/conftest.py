@@ -23,7 +23,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SKILL1_SCRIPT = REPO_ROOT / ".claude/skills/youtube-artifact-collector/scripts/extract_artifacts.py"
-SKILL2_DIR = REPO_ROOT / ".claude/skills/feature-requirement-extractor"
+SKILL2_DIR = REPO_ROOT / ".claude/skills/spec-distiller"
 SKILL2_SCRIPT = SKILL2_DIR / "scripts/extract_requirements.py"
 
 

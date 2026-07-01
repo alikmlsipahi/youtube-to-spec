@@ -18,7 +18,7 @@ description: >-
 Skill 1 of the YouTube intelligence pipeline — the **production layer**. It turns
 one or more video sources into high-quality, LLM-friendly artifacts and never
 performs analysis itself. (Downstream analysis is the job of the consumption
-layer, e.g. the `feature-requirement-extractor` skill.)
+layer, e.g. the `spec-distiller` skill.)
 
 ## When to use this skill
 

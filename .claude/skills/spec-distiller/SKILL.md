@@ -1,5 +1,5 @@
 ---
-name: feature-requirement-extractor
+name: spec-distiller
 description: >-
   Turn already-extracted YouTube artifacts (the JSON produced by the
   youtube-artifact-collector skill) into a structured Module→Feature→Requirement
@@ -13,7 +13,7 @@ description: >-
   videos or transcripts.
 ---
 
-# feature-requirement-extractor
+# spec-distiller
 
 Skill 2 of the YouTube intelligence pipeline — a **consumption-layer** analysis.
 It reads the lossless artifacts produced by `youtube-artifact-collector` (Skill 1)
@@ -89,7 +89,7 @@ When asked to extract requirements with the default engine, do this in-chat:
 ## OpenAI engine — how to run it (optional)
 
 ```bash
-uv run .claude/skills/feature-requirement-extractor/scripts/extract_requirements.py \
+uv run .claude/skills/spec-distiller/scripts/extract_requirements.py \
   <artifact.json | collection_dir> --engine openai [flags]
 ```
 

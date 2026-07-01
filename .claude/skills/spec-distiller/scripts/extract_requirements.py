@@ -4,7 +4,7 @@
 # dependencies = ["openai>=1.0.0", "python-dotenv>=1.0.0"]
 # ///
 """
-OpenAI engine for Skill 2 (feature-requirement-extractor): Skill 1 video
+OpenAI engine for Skill 2 (spec-distiller): Skill 1 video
 artifact JSON -> Module->Feature->Requirement document.
 
 Phase 1 — pure helpers (T-S2-01, T-S2-02, T-S2-04, T-S2-05). The OpenAI call,

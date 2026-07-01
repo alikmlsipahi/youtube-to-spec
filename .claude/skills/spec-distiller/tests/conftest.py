@@ -1,4 +1,4 @@
-"""Shared pytest setup for the feature-requirement-extractor unit tier.
+"""Shared pytest setup for the spec-distiller unit tier.
 
 The unit tests are strictly offline and deterministic. They import the OpenAI-engine
 script (`scripts/extract_requirements.py`) by file path and stub its heavyweight
