@@ -78,7 +78,7 @@ Newly locked this session:
 
 ## Reuse from the existing skill (verified locations)
 
-Source: `.claude/skills/youtube-transcript/scripts/get_transcript.py`
+Source: `skills/youtube-transcript/scripts/get_transcript.py`
 - `extract_video_id()` (lines 19–29) — **copy verbatim**.
 - `format_timestamp()` (lines 32–39) — **copy verbatim** (already does MM:SS / HH:MM:SS).
 - PEP-723 header (lines 1–5) + `main()`/argparse/`except Exception → stderr → sys.exit(1)` convention
@@ -86,7 +86,7 @@ Source: `.claude/skills/youtube-transcript/scripts/get_transcript.py`
 - Transcript fetch (lines 42–52) uses `YouTubeTranscriptApi().fetch()` (v1.x, `.snippets` with
   `.start`/`.text`) — **upgrade** to `.list()` + `find_transcript(langs)` + fallback to first track.
 
-SKILL.md frontmatter convention (`.claude/skills/youtube-transcript/SKILL.md:1-4`): YAML `---` with
+SKILL.md frontmatter convention (`skills/youtube-transcript/SKILL.md:1-4`): YAML `---` with
 `name` + `description`; description = capability sentence + explicit `Use when …` trigger clause.
 
 `skills-lock.json` lives at **repo root** (not under `.claude/`); only the GitHub-sourced
@@ -99,7 +99,7 @@ SKILL.md frontmatter convention (`.claude/skills/youtube-transcript/SKILL.md:1-4
 
 ## Skill 1 — `youtube-artifact-collector`
 
-**Location:** `.claude/skills/youtube-artifact-collector/`
+**Location:** `skills/youtube-artifact-collector/`
 - `SKILL.md`
 - `scripts/extract_artifacts.py` (single PEP-723 script; split a `_ytutil.py` only if >~300 lines)
 
@@ -178,7 +178,7 @@ single-video transcript dump." Explicit negative prevents collision.
 
 ## Skill 2 — `feature-requirement-extractor`
 
-**Location:** `.claude/skills/feature-requirement-extractor/`
+**Location:** `skills/feature-requirement-extractor/`
 ```
 feature-requirement-extractor/
 ├── SKILL.md                          # Claude-native engine instructions + trigger
@@ -251,7 +251,7 @@ breaks on real input. A single context cannot truly *forget* what it read, so is
 - Mocks: pytest `monkeypatch` + captured JSON fixtures (no live network in the unit tier).
 - Tiers: **unit** (offline, deterministic, default) and **integration** (`@pytest.mark.integration`,
   real network/OpenAI, **skipped by default**, run with `-m integration`; OpenAI ones auto-skip without a key).
-- Layout per skill: `.claude/skills/<skill>/tests/` with `test_*.py`, `conftest.py`,
+- Layout per skill: `skills/<skill>/tests/` with `test_*.py`, `conftest.py`,
   `fixtures/inputs/` (captured real yt-dlp / transcript / OpenAI samples) and `fixtures/expected/`
   (golden outputs — **test-only**).
 
@@ -261,7 +261,7 @@ breaks on real input. A single context cannot truly *forget* what it read, so is
 2. **Test-writer agent:** reads spec + acceptance criteria, captures fixtures, writes `tests/`. Returns
    only file paths + test counts (**never** assertion text). Context discarded after.
 3. **Implementer agent:** given the spec + signatures + canonical schema, **plus** the reuse source
-   `.claude/skills/youtube-transcript/scripts/get_transcript.py` (a source file, not a test). **Denylist:**
+   `skills/youtube-transcript/scripts/get_transcript.py` (a source file, not a test). **Denylist:**
    must not open `tests/**`, `**/conftest.py`, `**/fixtures/**`. Writes the script; does **not** run tests.
 4. **Verifier agent:** runs the suite and **translates each failure into a plain-language behavioral
    gap** (e.g. "does not emit HH:MM:SS past one hour"), stripping all assertion/line detail.
@@ -433,15 +433,15 @@ complete** — `B4`/`B5`/`B6` require the `SKILL.md` files and Skill 2 assets to
 
 ## Critical files
 
-- `.claude/skills/youtube-transcript/scripts/get_transcript.py` — source of copied
+- `skills/youtube-transcript/scripts/get_transcript.py` — source of copied
   `extract_video_id` (19–29) / `format_timestamp` (32–39) / fetch pattern (42–52) / PEP-723 + main (1–5, 55–72).
-- `.claude/skills/youtube-artifact-collector/scripts/extract_artifacts.py` — **new** (Skill 1).
-- `.claude/skills/youtube-artifact-collector/SKILL.md` — **new** — **[v2] authored in Phase C1 (`SK1-DOC`)**.
-- `.claude/skills/feature-requirement-extractor/SKILL.md` — **new** (Skill 2 Claude-native engine) — **[v2] Phase C3 (`SK2-DOC`)**.
-- `.claude/skills/feature-requirement-extractor/scripts/extract_requirements.py` — **new** (OpenAI engine).
-- `.claude/skills/feature-requirement-extractor/{prompts/*,templates/*,.env.example}` — **new** — **[v2] Phase C2 (`SK2-ASSETS`)**.
-- `.claude/skills/youtube-artifact-collector/tests/{test_*.py,conftest.py,fixtures/inputs/*,fixtures/expected/*}` — **new** (test-writer agent; **denylisted** for implementer **and the authoring agent**).
-- `.claude/skills/feature-requirement-extractor/tests/{test_*.py,conftest.py,fixtures/inputs/*,fixtures/expected/*}` — **new** (test-writer agent; **denylisted** for implementer **and the authoring agent**).
+- `skills/youtube-artifact-collector/scripts/extract_artifacts.py` — **new** (Skill 1).
+- `skills/youtube-artifact-collector/SKILL.md` — **new** — **[v2] authored in Phase C1 (`SK1-DOC`)**.
+- `skills/feature-requirement-extractor/SKILL.md` — **new** (Skill 2 Claude-native engine) — **[v2] Phase C3 (`SK2-DOC`)**.
+- `skills/feature-requirement-extractor/scripts/extract_requirements.py` — **new** (OpenAI engine).
+- `skills/feature-requirement-extractor/{prompts/*,templates/*,.env.example}` — **new** — **[v2] Phase C2 (`SK2-ASSETS`)**.
+- `skills/youtube-artifact-collector/tests/{test_*.py,conftest.py,fixtures/inputs/*,fixtures/expected/*}` — **new** (test-writer agent; **denylisted** for implementer **and the authoring agent**).
+- `skills/feature-requirement-extractor/tests/{test_*.py,conftest.py,fixtures/inputs/*,fixtures/expected/*}` — **new** (test-writer agent; **denylisted** for implementer **and the authoring agent**).
 - `docs/IMPLEMENTATION_PLAN-progress.md` — **new** living crash-resilient checklist (created at build start) — **[v2] gains the Authoring section** (`SK1-DOC`, `SK2-ASSETS`, `SK2-DOC`).
 - `skills-lock.json` (repo root) — edited only at the deprecation step.
 - `docs/02_PRODUCT_BRIEF.md` / `docs/03_ROADMAP.md` — authoritative requirements the schemas satisfy.

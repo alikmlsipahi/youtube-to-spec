@@ -12,7 +12,7 @@
 
 ```bash
 mkdir -p ~/.claude/skills
-git clone https://github.com/dannwaneri/spec-writer.git ~/.claude/skills/spec-writer
+git clone https://github.com/dannwaneri/spec-writer.git ~/skills/spec-writer
 ```
 
 ### H2. Progress tracker'ı sıfırla
@@ -53,7 +53,7 @@ Read these files first:
 - docs/IMPLEMENTATION_PLAN_v2.md (the authoritative plan — focus on §Skill 1, §Testable requirements T-S1-01 through T-S1-04, §Canonical per-video JSON schema, §Reuse from the existing skill)
 - docs/02_PRODUCT_BRIEF.md (§Girdi Modeli, §Transcript Artifact'i)
 - docs/03_ROADMAP.md (§Görsel Artifact — for understanding why segment index matters)
-- .claude/skills/youtube-transcript/scripts/get_transcript.py (reuse source)
+- skills/youtube-transcript/scripts/get_transcript.py (reuse source)
 - CLAUDE.md
 
 Now do two things, in order:
@@ -78,7 +78,7 @@ Follow the plan's test strategy:
 - Fixtures in tests/fixtures/inputs/ (captured real data) and tests/fixtures/expected/ (golden outputs)
 - conftest.py for shared setup
 - All tests offline/deterministic (no network)
-- Save to: .claude/skills/youtube-artifact-collector/tests/
+- Save to: skills/youtube-artifact-collector/tests/
 
 After completing, report ONLY:
 - File paths created
@@ -119,11 +119,11 @@ You may read:
 - docs/specs/A1-T-S1-03-classify_input.spec.md
 - docs/specs/A1-T-S1-04-slugify.spec.md
 - docs/IMPLEMENTATION_PLAN_v2.md (§Skill 1 Functions, §Canonical JSON, §CLI)
-- .claude/skills/youtube-transcript/scripts/get_transcript.py (reuse source — copy extract_video_id and format_timestamp verbatim from lines 19-29 and 32-39)
+- skills/youtube-transcript/scripts/get_transcript.py (reuse source — copy extract_video_id and format_timestamp verbatim from lines 19-29 and 32-39)
 - CLAUDE.md
 
 TASK: Implement the functions specified in the specs into:
-.claude/skills/youtube-artifact-collector/scripts/extract_artifacts.py
+skills/youtube-artifact-collector/scripts/extract_artifacts.py
 
 Include the PEP-723 header from the plan. Write ONLY the functions covered by T-S1-01..04. Do NOT run the tests yourself.
 
@@ -131,7 +131,7 @@ After writing the code, update progress:
 - T-S1-01..04 → [code-written]
 
 THEN switch to VERIFIER role:
-Run: uv run --with pytest pytest .claude/skills/youtube-artifact-collector/tests/ -v
+Run: uv run --with pytest pytest skills/youtube-artifact-collector/tests/ -v
 
 If all pass → update progress to [green] for each.
 
@@ -169,8 +169,8 @@ Read these files first:
 - docs/IMPLEMENTATION_PLAN_v2.md (focus on §Skill 1 Functions 3-4: fetch_metadata, fetch_transcript, §Canonical per-video JSON schema — specifically video{}, transcript{}, extraction{} blocks, §Testable requirements T-S1-05 through T-S1-07)
 - docs/02_PRODUCT_BRIEF.md (§Metadata Artifact'i, §Transcript Artifact'i)
 - docs/03_ROADMAP.md (§Görsel Artifact — segment index addressability)
-- .claude/skills/youtube-transcript/scripts/get_transcript.py (reuse source — transcript fetch pattern lines 42-52)
-- .claude/skills/youtube-artifact-collector/scripts/extract_artifacts.py (already-implemented helpers from A1)
+- skills/youtube-transcript/scripts/get_transcript.py (reuse source — transcript fetch pattern lines 42-52)
+- skills/youtube-artifact-collector/scripts/extract_artifacts.py (already-implemented helpers from A1)
 - CLAUDE.md
 
 Now do two things, in order:
@@ -198,7 +198,7 @@ Follow the plan's test strategy:
 - Fixtures in tests/fixtures/inputs/ (captured yt-dlp JSON sample, mocked transcript track objects) and tests/fixtures/expected/ (golden outputs)
 - conftest.py for shared setup
 - All tests offline/deterministic (no network)
-- Save to: .claude/skills/youtube-artifact-collector/tests/
+- Save to: skills/youtube-artifact-collector/tests/
 
 After completing, report ONLY:
 - File paths created
@@ -233,12 +233,12 @@ You may read:
 - docs/specs/A2-T-S1-06-select_transcript_track.spec.md
 - docs/specs/A2-T-S1-07-build_segments.spec.md
 - docs/IMPLEMENTATION_PLAN_v2.md (§Skill 1 Functions, §Canonical JSON, §CLI)
-- .claude/skills/youtube-transcript/scripts/get_transcript.py (reuse source — transcript fetch pattern lines 42-52)
-- .claude/skills/youtube-artifact-collector/scripts/extract_artifacts.py (the already-implemented helpers)
+- skills/youtube-transcript/scripts/get_transcript.py (reuse source — transcript fetch pattern lines 42-52)
+- skills/youtube-artifact-collector/scripts/extract_artifacts.py (the already-implemented helpers)
 - CLAUDE.md
 
 TASK: Implement the functions specified in the specs by ADDING them to the existing file:
-.claude/skills/youtube-artifact-collector/scripts/extract_artifacts.py
+skills/youtube-artifact-collector/scripts/extract_artifacts.py
 
 Do NOT overwrite existing functions. Add the new functions for T-S1-05, T-S1-06, T-S1-07 only. Do NOT run the tests yourself.
 
@@ -246,7 +246,7 @@ After writing the code, update progress:
 - T-S1-05..07 → [code-written]
 
 THEN switch to VERIFIER role:
-Run: uv run --with pytest pytest .claude/skills/youtube-artifact-collector/tests/ -v
+Run: uv run --with pytest pytest skills/youtube-artifact-collector/tests/ -v
 
 If all pass → update progress to [green] for each.
 
@@ -275,7 +275,7 @@ Read these files first:
 - docs/IMPLEMENTATION_PLAN_v2.md (focus on §Skill 1 Functions 5-6: render_markdown, write_artifacts, write_manifest, §Canonical per-video JSON, §_manifest.json shape, §File layout, §Testable requirements T-S1-08 through T-S1-11, §graceful degradation)
 - docs/02_PRODUCT_BRIEF.md (§İlişkisel Bütünlük Gereksinimleri)
 - docs/03_ROADMAP.md (§Görsel Artifact İlişkilendirme)
-- .claude/skills/youtube-artifact-collector/scripts/extract_artifacts.py (already-implemented functions from A1+A2)
+- skills/youtube-artifact-collector/scripts/extract_artifacts.py (already-implemented functions from A1+A2)
 - CLAUDE.md
 
 Now do two things, in order:
@@ -306,7 +306,7 @@ Follow the plan's test strategy:
 - All tests offline/deterministic (no network)
 - For T-S1-10: fixture with stderr WARNING containing "5 unavailable videos are hidden" and one without
 - For T-S1-11: mock subprocess returning nonzero exit code
-- Save to: .claude/skills/youtube-artifact-collector/tests/
+- Save to: skills/youtube-artifact-collector/tests/
 
 After completing, report ONLY:
 - File paths created
@@ -340,11 +340,11 @@ You may read:
 - docs/specs/A3-T-S1-10-parse_hidden_unavailable.spec.md
 - docs/specs/A3-T-S1-11-graceful_degradation.spec.md
 - docs/IMPLEMENTATION_PLAN_v2.md (§Skill 1 Functions, §Canonical JSON, §_manifest.json, §File layout, §CLI)
-- .claude/skills/youtube-artifact-collector/scripts/extract_artifacts.py (the already-implemented functions)
+- skills/youtube-artifact-collector/scripts/extract_artifacts.py (the already-implemented functions)
 - CLAUDE.md
 
 TASK: Implement the functions specified in the specs by ADDING them to the existing file:
-.claude/skills/youtube-artifact-collector/scripts/extract_artifacts.py
+skills/youtube-artifact-collector/scripts/extract_artifacts.py
 
 Do NOT overwrite existing functions. Add the new functions for T-S1-08, T-S1-09, T-S1-10, T-S1-11 only. Do NOT run the tests yourself.
 
@@ -352,7 +352,7 @@ After writing the code, update progress:
 - T-S1-08..11 → [code-written]
 
 THEN switch to VERIFIER role:
-Run: uv run --with pytest pytest .claude/skills/youtube-artifact-collector/tests/ -v
+Run: uv run --with pytest pytest skills/youtube-artifact-collector/tests/ -v
 
 If all pass → update progress to [green] for each.
 
@@ -408,7 +408,7 @@ Follow the plan's test strategy:
 - Fixtures in tests/fixtures/inputs/ (sample artifact JSON, sample prompt with {{placeholders}}) and tests/fixtures/expected/
 - conftest.py for shared setup
 - All tests offline/deterministic (no network, no OpenAI calls)
-- Save to: .claude/skills/feature-requirement-extractor/tests/
+- Save to: skills/feature-requirement-extractor/tests/
 
 After completing, report ONLY:
 - File paths created
@@ -426,7 +426,7 @@ After tests are written, update to [test-written] for each.
 
 #### A4 — SESSION 2: Blind Implement + Verify
 
-Hedef dosya: `.claude/skills/feature-requirement-extractor/scripts/extract_requirements.py`. PEP-723 header with `openai, python-dotenv` deps. Progress → `[green]`.
+Hedef dosya: `skills/feature-requirement-extractor/scripts/extract_requirements.py`. PEP-723 header with `openai, python-dotenv` deps. Progress → `[green]`.
 
 ```
 You are a BLIND IMPLEMENTER. You must follow these rules strictly:
@@ -445,7 +445,7 @@ You may read:
 - CLAUDE.md
 
 TASK: Implement the functions specified in the specs into a NEW file:
-.claude/skills/feature-requirement-extractor/scripts/extract_requirements.py
+skills/feature-requirement-extractor/scripts/extract_requirements.py
 
 Include the PEP-723 header from the plan (dependencies: openai, python-dotenv). Write ONLY the functions covered by T-S2-01, T-S2-02, T-S2-04, T-S2-05. Do NOT run the tests yourself.
 
@@ -453,7 +453,7 @@ After writing the code, update progress:
 - T-S2-01, T-S2-02, T-S2-04, T-S2-05 → [code-written]
 
 THEN switch to VERIFIER role:
-Run: uv run --with pytest pytest .claude/skills/feature-requirement-extractor/tests/ -v
+Run: uv run --with pytest pytest skills/feature-requirement-extractor/tests/ -v
 
 If all pass → update progress to [green] for each.
 
@@ -481,7 +481,7 @@ Aynı kalıp. T-S2-03, 06, 07. Spec dosyaları `docs/specs/A5-*`. Odak: json_sch
 Read these files first:
 - docs/IMPLEMENTATION_PLAN_v2.md (focus on §Skill 2, §Testable requirements T-S2-03, T-S2-06, T-S2-07, json_schema response handling, manifest iteration, env key loading)
 - docs/02_PRODUCT_BRIEF.md (§LLM Entegrasyonu, §Çıktı Formatı ve Saklama)
-- .claude/skills/feature-requirement-extractor/scripts/extract_requirements.py (already-implemented functions from A4)
+- skills/feature-requirement-extractor/scripts/extract_requirements.py (already-implemented functions from A4)
 - CLAUDE.md
 
 Now do two things, in order:
@@ -509,7 +509,7 @@ Follow the plan's test strategy:
 - Fixtures in tests/fixtures/inputs/ (captured json_schema OpenAI response sample, sample artifact JSON, sample _manifest.json) and tests/fixtures/expected/
 - conftest.py for shared setup
 - All tests offline/deterministic (no network, no OpenAI calls — mock the API)
-- Save to: .claude/skills/feature-requirement-extractor/tests/
+- Save to: skills/feature-requirement-extractor/tests/
 
 After completing, report ONLY:
 - File paths created
@@ -541,11 +541,11 @@ You may read:
 - docs/specs/A5-T-S2-06-env_key_loading.spec.md
 - docs/specs/A5-T-S2-07-input_resolution.spec.md
 - docs/IMPLEMENTATION_PLAN_v2.md (§Skill 2, §Canonical JSON schema, §_manifest.json)
-- .claude/skills/feature-requirement-extractor/scripts/extract_requirements.py (already-implemented functions from A4)
+- skills/feature-requirement-extractor/scripts/extract_requirements.py (already-implemented functions from A4)
 - CLAUDE.md
 
 TASK: Implement the functions specified in the specs by ADDING them to the existing file:
-.claude/skills/feature-requirement-extractor/scripts/extract_requirements.py
+skills/feature-requirement-extractor/scripts/extract_requirements.py
 
 Do NOT overwrite existing functions. Add the new functions for T-S2-03, T-S2-06, T-S2-07 only. Do NOT run the tests yourself.
 
@@ -553,7 +553,7 @@ After writing the code, update progress:
 - T-S2-03, T-S2-06, T-S2-07 → [code-written]
 
 THEN switch to VERIFIER role:
-Run: uv run --with pytest pytest .claude/skills/feature-requirement-extractor/tests/ -v
+Run: uv run --with pytest pytest skills/feature-requirement-extractor/tests/ -v
 
 If all pass → update progress to [green] for each.
 
@@ -583,27 +583,27 @@ You are the AUTHORING AGENT. All A-block units are green.
 DENYLIST (still applies): Do NOT read **/tests/**, **/conftest.py**, **/fixtures/**
 
 You MAY read the finished scripts:
-- .claude/skills/youtube-artifact-collector/scripts/extract_artifacts.py
-- .claude/skills/feature-requirement-extractor/scripts/extract_requirements.py
+- skills/youtube-artifact-collector/scripts/extract_artifacts.py
+- skills/feature-requirement-extractor/scripts/extract_requirements.py
 - docs/IMPLEMENTATION_PLAN_v2.md (§SKILL.md trigger, §Phase C, §Skill 2 prompts/templates)
 - CLAUDE.md
 
 TASK — Author these files in order:
 
-C1: .claude/skills/youtube-artifact-collector/SKILL.md
+C1: skills/youtube-artifact-collector/SKILL.md
 - YAML frontmatter: name + description with de-confliction trigger ("not a quick single-video transcript dump")
 - Usage section with CLI flags AS ACTUALLY SHIPPED (read from the finished script's argparse)
 - Update progress: SK1-DOC → [drafted]
 
 C2: Skill 2 swappable assets:
-- .claude/skills/feature-requirement-extractor/prompts/system_prompt.md
-- .claude/skills/feature-requirement-extractor/prompts/extraction_prompt.md
+- skills/feature-requirement-extractor/prompts/system_prompt.md
+- skills/feature-requirement-extractor/prompts/extraction_prompt.md
   (with {{placeholders}} matching fill_prompt's contract + module/action code lookup table for <MODULE>-<FEATURE>-<NNN>)
-- .claude/skills/feature-requirement-extractor/templates/requirement_doc.md
-- .claude/skills/feature-requirement-extractor/.env.example (OPENAI_API_KEY=your_key_here)
+- skills/feature-requirement-extractor/templates/requirement_doc.md
+- skills/feature-requirement-extractor/.env.example (OPENAI_API_KEY=your_key_here)
 - Update progress: SK2-ASSETS → [drafted]
 
-C3: .claude/skills/feature-requirement-extractor/SKILL.md
+C3: skills/feature-requirement-extractor/SKILL.md
 - Claude-native engine instructions (read artifact JSON + manifest, read prompt/template files, fill, write/print)
 - Consumption trigger ("from already-extracted artifacts")
 - Optional --engine openai note
@@ -628,7 +628,7 @@ C3: .claude/skills/feature-requirement-extractor/SKILL.md
 ```
 Run integration tests for Skill 1. Execute these in order:
 
-B1: uv run .claude/skills/youtube-artifact-collector/scripts/extract_artifacts.py fl1DSmwQKKY --print
+B1: uv run skills/youtube-artifact-collector/scripts/extract_artifacts.py fl1DSmwQKKY --print
 Expected: 60 Turkish auto segments, selected.type:"auto", available_tracks=[tr], full metadata.
 Verify and report.
 
@@ -670,7 +670,7 @@ Update: I-03 based on result.
 
 ```
 Deprecate youtube-transcript skill:
-- Remove or archive .claude/skills/youtube-transcript/
+- Remove or archive skills/youtube-transcript/
 - Update skills-lock.json at repo root
 - Commit with: chore: deprecate youtube-transcript skill
 ONLY proceed with explicit user confirmation.

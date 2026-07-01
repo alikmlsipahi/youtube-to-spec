@@ -2,7 +2,7 @@
 
 These tests hit the *real* network (YouTube via Skill 1) and the *real* OpenAI
 API (Skill 2). They are deliberately isolated from the per-skill offline unit
-suites: the documented unit commands target `.claude/skills/<skill>/tests/` and
+suites: the documented unit commands target `skills/<skill>/tests/` and
 never collect this directory, so normal runs stay fast, free, and deterministic.
 
 They are **skipped by default** and only execute when explicitly opted in:
@@ -22,8 +22,8 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SKILL1_SCRIPT = REPO_ROOT / ".claude/skills/youtube-artifact-collector/scripts/extract_artifacts.py"
-SKILL2_DIR = REPO_ROOT / ".claude/skills/spec-distiller"
+SKILL1_SCRIPT = REPO_ROOT / "skills/youtube-artifact-collector/scripts/extract_artifacts.py"
+SKILL2_DIR = REPO_ROOT / "skills/spec-distiller"
 SKILL2_SCRIPT = SKILL2_DIR / "scripts/extract_requirements.py"
 
 

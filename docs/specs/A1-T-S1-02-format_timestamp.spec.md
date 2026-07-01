@@ -15,7 +15,7 @@ def format_timestamp(seconds: float) -> str
 ```
 
 Reuse mandate (plan §Reuse, line 83): **copy verbatim** from
-`.claude/skills/youtube-transcript/scripts/get_transcript.py` lines 32–39 (it already does MM:SS /
+`skills/youtube-transcript/scripts/get_transcript.py` lines 32–39 (it already does MM:SS /
 HH:MM:SS). The behavior below is exactly that verbatim copy.
 
 ## Inputs

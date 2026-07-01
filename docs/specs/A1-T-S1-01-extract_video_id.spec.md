@@ -15,7 +15,7 @@ def extract_video_id(url_or_id: str) -> str
 ```
 
 Reuse mandate (plan §Reuse, lines 82): **copy verbatim** from
-`.claude/skills/youtube-transcript/scripts/get_transcript.py` lines 19–29. The behavior below describes
+`skills/youtube-transcript/scripts/get_transcript.py` lines 19–29. The behavior below describes
 exactly what that verbatim copy must do; it is not an invitation to re-derive a different algorithm.
 
 ## Inputs

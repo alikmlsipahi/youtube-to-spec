@@ -61,7 +61,7 @@ The skill is a single PEP-723 `uv` script — dependencies resolve from the scri
 header; there is no separate install step.
 
 ```bash
-uv run .claude/skills/youtube-artifact-collector/scripts/extract_artifacts.py \
+uv run skills/youtube-artifact-collector/scripts/extract_artifacts.py \
   <url_or_id>… [flags]
 ```
 

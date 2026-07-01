@@ -89,7 +89,7 @@ When asked to extract requirements with the default engine, do this in-chat:
 ## OpenAI engine — how to run it (optional)
 
 ```bash
-uv run .claude/skills/spec-distiller/scripts/extract_requirements.py \
+uv run skills/spec-distiller/scripts/extract_requirements.py \
   <artifact.json | collection_dir> --engine openai [flags]
 ```
 
