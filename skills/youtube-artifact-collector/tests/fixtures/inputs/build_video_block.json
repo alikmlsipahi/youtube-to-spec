@@ -3,12 +3,12 @@
     {
       "name": "full_with_extra_fields",
       "meta": {
-        "id": "EXAMPLE1234",
-        "webpage_url": "https://www.youtube.com/watch?v=EXAMPLE1234",
-        "title": "Kayıt Ekranı Tanıtımı",
-        "channel": "Örnek Kanal",
+        "id": "fl1DSmwQKKY",
+        "webpage_url": "https://www.youtube.com/watch?v=fl1DSmwQKKY",
+        "title": "What is Claude Code?",
+        "channel": "Claude",
         "channel_id": "UC123456789",
-        "uploader": "Örnek Kanal",
+        "uploader": "Claude",
         "upload_date": "20240115",
         "duration": 612,
         "description": "Bu videoda kayıt ekranı anlatılır.\nİkinci satır.",

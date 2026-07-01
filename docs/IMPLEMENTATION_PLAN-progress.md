@@ -51,7 +51,7 @@
 
 ## Integration tier (`@pytest.mark.integration`, opt-in)
 
-- [green] I-01 — Skill 1 real EXAMPLE1234 → 60 tr auto segments (verified: segment_count 60, selected type=auto, available_tracks=[tr])
+- [green] I-01 — Skill 1 real fl1DSmwQKKY → 60 tr auto segments (verified: segment_count 60, selected type=auto, available_tracks=[tr])
 - [green] I-02 — Skill 1 real playlist → hidden_unavailable_count:5, members ordered 1..24, 19 ok / 5 metadata_failed w/ reason (verified)
 - [green] I-03 — Skill 2 OpenAI real key → same JSON/MD shape parsed (json_schema; valid ids, composite-unique; model trace accuracy is model-side, not script)
 

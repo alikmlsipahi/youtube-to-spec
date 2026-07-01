@@ -6,10 +6,10 @@
         "schema_version": "1.0",
         "kind": "video_artifact",
         "video": {
-          "id": "EXAMPLE1234",
-          "url": "https://www.youtube.com/watch?v=EXAMPLE1234",
-          "title": "Kayıt Ekranı Tanıtımı",
-          "channel": "Örnek Kanal"
+          "id": "fl1DSmwQKKY",
+          "url": "https://www.youtube.com/watch?v=fl1DSmwQKKY",
+          "title": "What is Claude Code?",
+          "channel": "Claude"
         },
         "collection": {
           "type": "playlist",

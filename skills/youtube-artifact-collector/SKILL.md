@@ -86,19 +86,19 @@ video IDs**, or a **playlist URL**, mixed freely.
 
 ```bash
 # Single video → data/_singles/<video_id>.json + .md
-uv run …/extract_artifacts.py EXAMPLE1234
+uv run …/extract_artifacts.py fl1DSmwQKKY
 
 # A watch?v=…&list=… URL, collected as just the video (default)
-uv run …/extract_artifacts.py "https://www.youtube.com/watch?v=EXAMPLE1234&list=PLxxxx"
+uv run …/extract_artifacts.py "https://www.youtube.com/watch?v=fl1DSmwQKKY&list=PLxxxx"
 
 # The same URL, but collect the entire playlist
-uv run …/extract_artifacts.py "https://www.youtube.com/watch?v=EXAMPLE1234&list=PLxxxx" --playlist
+uv run …/extract_artifacts.py "https://www.youtube.com/watch?v=fl1DSmwQKKY&list=PLxxxx" --playlist
 
 # Several videos at once, preferring English transcripts
 uv run …/extract_artifacts.py vid1 vid2 vid3 --langs en,tr
 
 # Inspect one video without writing files
-uv run …/extract_artifacts.py EXAMPLE1234 --print
+uv run …/extract_artifacts.py fl1DSmwQKKY --print
 ```
 
 ## Output layout

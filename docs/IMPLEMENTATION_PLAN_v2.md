@@ -12,7 +12,7 @@
 Phase 1 of this project (see `CLAUDE.md`, `docs/02_PRODUCT_BRIEF.md`) requires three capabilities:
 metadata collection, structured timestamped transcript collection, and LLM integration. The existing
 `youtube-transcript` skill is too narrow — its script hard-defaults to English
-(`api.fetch(video_id)`), so a Turkish auto-generated-only video (`EXAMPLE1234`) errors out. We deliver
+(`api.fetch(video_id)`), so a Turkish auto-generated-only video (`fl1DSmwQKKY`) errors out. We deliver
 Phase 1 as **two composable, Claude-Code-native skills** whose only coupling is a versioned JSON
 contract, keeping the **production layer** (artifact extraction) decoupled from the **consumption
 layer** (requirement analysis) exactly as the brief mandates.
@@ -321,7 +321,7 @@ Each row = one requirement with a stable id used by the checklist. **Pure/offlin
 *Integration tier (`@pytest.mark.integration`, network, opt-in):*
 | id | scenario |
 |---|---|
-| I-01 | Skill 1 real `EXAMPLE1234` → 60 `tr` auto segments, `type:auto`, `available_tracks=[tr]` |
+| I-01 | Skill 1 real `fl1DSmwQKKY` → 60 `tr` auto segments, `type:auto`, `available_tracks=[tr]` |
 | I-02 | Skill 1 real playlist → `hidden_unavailable_count:5`, ordered members, per-video lang/type |
 | I-03 | Skill 2 OpenAI with real key → same JSON/MD shape (auto-skip if no key) |
 
@@ -407,13 +407,13 @@ row (`pending → drafted → accepted`; `accepted` is reached at the mapped `A-
 
 **B. Integration + acceptance gates** (after the relevant unit work is green **and [v2] Phase C is
 complete** — `B4`/`B5`/`B6` require the `SKILL.md` files and Skill 2 assets to exist):
-1. **Skill 1 single-video core** → `uv run extract_artifacts.py EXAMPLE1234 --print` → 60 Turkish auto
+1. **Skill 1 single-video core** → `uv run extract_artifacts.py fl1DSmwQKKY --print` → 60 Turkish auto
    segments, `selected.type:"auto"`, full metadata, `available_tracks=[tr]` *(I-01)*.
-2. **Skill 1 save + layout** → without `--print` → `data/_singles/EXAMPLE1234.json` + `.md`; segments carry `index`.
+2. **Skill 1 save + layout** → without `--print` → `data/_singles/fl1DSmwQKKY.json` + `.md`; segments carry `index`.
 3. **Skill 1 playlist + graceful degradation** → real playlist → `data/<slug>-PLk…/` + `_manifest.json`
    (`hidden_unavailable_count:5`, ordered members), per-video failures recorded, run **continues** *(I-02)*.
 4. **Skill 1 `watch?v=…&list=…`** → single by default; `--playlist` expands. SKILL.md trigger test *(A-01)* **[v2] needs C1**.
-5. **Skill 2 Claude-native** → point at `EXAMPLE1234.json` → filled doc with `<MODULE>-<FEATURE>-NNN`
+5. **Skill 2 Claude-native** → point at `fl1DSmwQKKY.json` → filled doc with `<MODULE>-<FEATURE>-NNN`
    codes, `source_video_id` set, traces matching real segment times *(A-02, A-03)* **[v2] needs C2+C3**.
 6. **Skill 2 OpenAI** → with `.env` key → same JSON/MD shape, configurable params honored *(I-03)* **[v2] needs C2**.
 7. **Deprecate `youtube-transcript`** → separate user-approved step; update root `skills-lock.json`.

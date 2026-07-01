@@ -1,9 +1,9 @@
 {
   "cases": [
-    { "urls": ["EXAMPLE1234"], "playlist": false },
-    { "urls": ["https://youtu.be/EXAMPLE1234"], "playlist": false },
+    { "urls": ["fl1DSmwQKKY"], "playlist": false },
+    { "urls": ["https://youtu.be/fl1DSmwQKKY"], "playlist": false },
     { "urls": ["https://www.youtube.com/watch?v=dQw4w9WgXcQ"], "playlist": false },
-    { "urls": ["EXAMPLE1234", "dQw4w9WgXcQ"], "playlist": false },
+    { "urls": ["fl1DSmwQKKY", "dQw4w9WgXcQ"], "playlist": false },
     { "urls": ["u1", "u2", "u3"], "playlist": false },
     { "urls": ["https://www.youtube.com/playlist?list=PLabc123"], "playlist": false },
     { "urls": ["https://www.youtube.com/playlist?list=PLabc123"], "playlist": true },

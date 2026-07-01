@@ -3,8 +3,8 @@
     "schema_version": "1.0",
     "kind": "video_artifact",
     "video": {
-      "id": "EXAMPLE1234",
-      "url": "https://www.youtube.com/watch?v=EXAMPLE1234",
+      "id": "fl1DSmwQKKY",
+      "url": "https://www.youtube.com/watch?v=fl1DSmwQKKY",
       "title": "Öğrenci Kayıt Ekranı",
       "channel": "Örnek Yazılım"
     },
@@ -35,13 +35,13 @@
               {
                 "id": "REG-ADD-STU-001",
                 "text": "Kullanıcı yeni bir öğrenci kaydı oluşturabilmelidir.",
-                "source_video_id": "EXAMPLE1234",
+                "source_video_id": "fl1DSmwQKKY",
                 "trace": { "timestamp": "00:03", "segment_index": 1 }
               },
               {
                 "id": "REG-ADD-STU-002",
                 "text": "Form, zorunlu alanlar boş bırakıldığında kaydı engellemelidir.",
-                "source_video_id": "EXAMPLE1234",
+                "source_video_id": "fl1DSmwQKKY",
                 "trace": { "timestamp": "00:07", "segment_index": 2 }
               }
             ]
@@ -53,7 +53,7 @@
               {
                 "id": "REG-SAVE-003",
                 "text": "Form gönderildikten sonra kayıt kalıcı olarak saklanmalıdır.",
-                "source_video_id": "EXAMPLE1234",
+                "source_video_id": "fl1DSmwQKKY",
                 "trace": { "timestamp": "00:10", "segment_index": 3 }
               }
             ]

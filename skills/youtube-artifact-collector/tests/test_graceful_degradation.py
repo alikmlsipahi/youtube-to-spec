@@ -23,9 +23,9 @@ def test_nonzero_exit_returns_none(mod, monkeypatch):
 
 
 def test_zero_exit_with_json_returns_dict(mod, monkeypatch):
-    meta = {"id": "EXAMPLE1234", "title": "Kayıt Ekranı", "duration": 612}
+    meta = {"id": "fl1DSmwQKKY", "title": "What is Claude Code?", "duration": 612}
     monkeypatch.setattr(subprocess, "run", _fake_run(0, stdout=json.dumps(meta)))
-    result = mod.fetch_metadata("EXAMPLE1234")
+    result = mod.fetch_metadata("fl1DSmwQKKY")
     assert isinstance(result, dict)
     assert result == meta
 
