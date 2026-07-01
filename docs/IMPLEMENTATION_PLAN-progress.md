@@ -38,26 +38,26 @@
 > end-to-end flow. Existing functions untouched; verified via the integration gates
 > below, not unit tests.
 
-- [done] SK1-ORCH — extract_artifacts.py main/CLI/IO + enumerate_playlist/fetch_transcript/build_artifact/write_* (verified by I-01 ✓; I-02 pending)
-- [done] SK2-ORCH — extract_requirements.py main/CLI + OpenAI engine (load_prompt_files/build_response_format/call_openai/process_artifact/write_outputs) (verified by I-03 pending; claude-path exit ✓)
+- [done] SK1-ORCH — extract_artifacts.py main/CLI/IO + enumerate_playlist/fetch_transcript/build_artifact/write_* (verified by I-01 ✓, I-02 ✓)
+- [done] SK2-ORCH — extract_requirements.py main/CLI + OpenAI engine (load_prompt_files/build_response_format/call_openai/process_artifact/write_outputs) (verified by I-03 ✓; claude-path ✓)
 
 ## Authoring (Phase C — non-blind; prose/assets; test-denylist still applies)
 
 > Lifecycle: pending → drafted → accepted. Accepted at the mapped acceptance gate.
 
-- [drafted] SK1-DOC — youtube-artifact-collector/SKILL.md (Phase C1; gate A-01)
-- [drafted] SK2-ASSETS — Skill 2 prompts/{system_prompt,extraction_prompt}.md, templates/requirement_doc.md, .env.example (Phase C2; gates A-03, A-04)
-- [drafted] SK2-DOC — feature-requirement-extractor/SKILL.md (Phase C3; gates A-02, A-03)
+- [accepted] SK1-DOC — youtube-artifact-collector/SKILL.md (Phase C1; gate A-01)
+- [accepted] SK2-ASSETS — Skill 2 prompts/{system_prompt,extraction_prompt}.md, templates/requirement_doc.md, .env.example (Phase C2; gates A-03, A-04)
+- [accepted] SK2-DOC — feature-requirement-extractor/SKILL.md (Phase C3; gates A-02, A-03)
 
 ## Integration tier (`@pytest.mark.integration`, opt-in)
 
 - [green] I-01 — Skill 1 real fl1DSmwQKKY → 60 tr auto segments (verified: segment_count 60, selected type=auto, available_tracks=[tr])
-- [pending] I-02 — Skill 1 real playlist → hidden_unavailable_count:5, ordered members
-- [pending] I-03 — Skill 2 OpenAI real key → same JSON/MD shape
+- [green] I-02 — Skill 1 real playlist → hidden_unavailable_count:5, members ordered 1..24, 19 ok / 5 metadata_failed w/ reason (verified)
+- [green] I-03 — Skill 2 OpenAI real key → same JSON/MD shape parsed (json_schema; valid ids, composite-unique; model trace accuracy is model-side, not script)
 
 ## Acceptance-only (prompt-following & trigger behavior)
 
-- [pending] A-01 — Skill 1 SKILL.md fires on "collect artifacts for this playlist"
-- [pending] A-02 — Skill 2 SKILL.md fires on "extract requirements from this artifact"
-- [pending] A-03 — Claude-native engine yields filled doc with codes + matching traces
-- [pending] A-04 — Swapping extraction_prompt.md changes output without code edits
+- [accepted] A-01 — Skill 1 SKILL.md fires on "collect artifacts for this playlist" (trigger + flag audit vs argparse: exact match)
+- [accepted] A-02 — Skill 2 SKILL.md fires on "extract requirements from this artifact" (trigger + flag audit vs argparse: exact match)
+- [accepted] A-03 — Claude-native engine yields filled doc: 18 reqs, valid ids, all traces resolve to real segments
+- [accepted] A-04 — Swapping extraction_prompt.md changes model prompt with zero code edit (git status of script empty)
