@@ -2,20 +2,134 @@
 
 Turn YouTube videos into structured, LLM-ready knowledge.
 
-`youtube-to-spec` is a two-layer pipeline, shipped as two decoupled skills:
+## What it does, in one line
 
-1. **Production** — extract *lossless* metadata and timestamped, segment-structured transcripts from
-   one or many videos (or a whole playlist) into clean JSON + Markdown artifacts.
-2. **Consumption** — distill those artifacts into a traceable **Module → Feature → Requirement**
-   document, where every requirement points back to the exact transcript segment it came from.
+A YouTube video (or a whole playlist) goes **in**; a structured **requirements document** comes
+**out** — and every line in that document is traceable back to the exact second of the video it came
+from.
 
-The layers are coupled by **one** thing only: a versioned JSON contract (`schema_version`). You can
-swap the analysis (requirements, product discovery, business rules, a different doc style) purely by
-editing external prompt files — no code changes.
+You never lose the source. If a requirement says *"the agent can run your tests,"* you can click
+straight to the moment in the transcript where the video said it.
 
-> **Running example.** The snippets below use the video
-> [**"What is Claude Code?"**](https://www.youtube.com/watch?v=fl1DSmwQKKY) (`fl1DSmwQKKY`) — a short,
-> public, captioned video — end to end: collect its artifact, then distill requirements from it.
+```mermaid
+flowchart LR
+    A["YouTube URL, video id,<br/>or playlist"] --> B["Skill 1<br/>youtube-artifact-collector<br/>yt-dlp + youtube-transcript-api"]
+    B --> C["Artifacts<br/>video-id.json + .md<br/>_manifest.json"]
+    C --> D["Skill 2<br/>spec-distiller<br/>engine: claude or openai"]
+    D --> E["Module → Feature → Requirement<br/>traceable document"]
+```
+
+## The two skills at a glance
+
+The project is two small, independent skills. The first **produces** artifacts; the second
+**consumes** them. They are coupled by exactly one thing: a versioned JSON contract
+(`schema_version`).
+
+| Skill | Takes in | Produces |
+| ----- | -------- | -------- |
+| **1 · `youtube-artifact-collector`** (production) | A YouTube URL, bare video id, or playlist | Lossless per-video `JSON` + readable `Markdown`, plus a `_manifest.json` for playlists |
+| **2 · `spec-distiller`** (consumption) | A Skill 1 artifact (or a whole collection) | A **Module → Feature → Requirement** document, every requirement traced to a transcript segment |
+
+Because they are decoupled, you can swap the *analysis* (requirements, product discovery, business
+rules, a different doc style) purely by editing external prompt files — no code changes.
+
+> **Running example.** Everything below is a real run of the short, public, captioned video
+> [**"What is Claude Code?"**](https://www.youtube.com/watch?v=fl1DSmwQKKY) (`fl1DSmwQKKY`) — collect
+> its artifact, then distill requirements from it.
+
+---
+
+## What a real run produces
+
+**Step 1 — collect.** Skill 1 fetches metadata and a timestamped, segment-structured transcript.
+A slice of the real transcript artifact for this video looks like this:
+
+```
+[00:08] (segment 2)   edits your files, run commands, and
+[01:28] (segment 36)  code. Claude Code can execute your build
+[01:30] (segment 37)  script, run your tests, install
+```
+
+Every segment carries a stable, zero-based `index` — that index is the **address** the next step
+points back to.
+
+**Step 2 — distil.** Skill 2 reads that artifact and produces the requirements document below (this
+is the actual generated output, trimmed for length). Each requirement has a stable id
+`<MODULE>-<FEATURE>-<NNN>` and a `trace` back to a real transcript segment:
+
+```
+CODE - EDIT - 001
+ │      │      └── requirement number (video-local, starts at 001)
+ │      └───────── feature  (an action, e.g. READ / EDIT / RUN)
+ └──────────────── module   (here: "Claude Code")
+```
+
+```markdown
+### CODE — Claude Code
+
+#### READ — Understand the codebase
+
+- **CODE-READ-001**: The agent understands the user's codebase directly, using it as context instead
+  of requiring code to be copied and pasted in. _(trace: timestamp 00:06, segment 1)_
+- **CODE-READ-002**: The user can ask the agent to explain a feature in the codebase.
+  _(trace: timestamp 01:25, segment 34)_
+- **CODE-READ-003**: The user can ask the agent to trace a bug throughout the code.
+  _(trace: timestamp 01:26, segment 35)_
+
+#### EDIT — Edit files
+
+- **CODE-EDIT-001**: The agent edits the user's files directly in place, rather than returning code
+  for the user to paste back and forth. _(trace: timestamp 00:08, segment 2)_
+- **CODE-EDIT-002**: The agent performs the work itself across the codebase to complete a defined
+  goal. _(trace: timestamp 00:49, segment 19)_
+
+#### RUN — Run commands
+
+- **CODE-RUN-001**: The agent runs commands in the user's terminal. _(trace: timestamp 00:08, segment 2)_
+- **CODE-RUN-002**: The agent can execute the project's build script. _(trace: timestamp 01:28, segment 36)_
+- **CODE-RUN-003**: The agent can run the project's tests. _(trace: timestamp 01:30, segment 37)_
+- **CODE-RUN-004**: The agent can install packages. _(trace: timestamp 01:33, segment 38)_
+- **CODE-RUN-005**: The agent uses command output to decide what to do next.
+  _(trace: timestamp 01:35, segment 39)_
+
+#### SRCH-WEB — Search the web
+
+- **CODE-SRCH-WEB-001**: The agent can search the web to fetch documentation, such as the latest API
+  references. _(trace: timestamp 01:37, segment 40)_
+
+#### INTEG — Integrate external tools
+
+- **CODE-INTEG-001**: The agent integrates with the user's existing developer tools.
+  _(trace: timestamp 00:10, segment 3)_
+- **CODE-INTEG-002**: The agent connects to external tools and services to help complete a goal.
+  _(trace: timestamp 02:41, segment 68)_
+
+#### PERM — Permission & control
+
+- **CODE-PERM-001**: By default, the agent asks for permission before running commands or making
+  changes to the codebase. _(trace: timestamp 02:10, segment 55)_
+- **CODE-PERM-002**: The user stays in control and can work in a more hands-on or more passive way.
+  _(trace: timestamp 02:14, segment 57)_
+
+#### ACCESS — Availability
+
+- **CODE-ACCESS-001**: Claude Code is available in the terminal, VS Code, the Claude desktop app, the
+  web, and JetBrains IDEs. _(trace: timestamp 00:19, segment 6)_
+```
+
+### How the trace works
+
+The `trace` on every requirement is not decoration — it is a resolvable pointer. The segment index is
+the stable address; follow it back to the exact transcript segment and timestamp:
+
+```mermaid
+flowchart LR
+    R["Requirement<br/>CODE-RUN-003<br/>the agent can run the project tests"] -->|trace| S["segment index 37"]
+    S --> T["Transcript segment<br/>01:30 · run your tests, install packages"]
+```
+
+This is what makes the output *auditable*: a reviewer can verify every requirement against its source
+instead of trusting a summary.
 
 ---
 
@@ -86,40 +200,17 @@ Key flags: `--playlist`, `--langs tr,en`, `--metadata-only`, `--skip-existing`, 
 
 ## Skill 2 — `spec-distiller` (consumption)
 
-Turn a Skill 1 artifact (or a whole collection) into a **Module → Feature → Requirement** document.
-Two interchangeable engines emit the **same** shape:
+Turn a Skill 1 artifact (or a whole collection) into the **Module → Feature → Requirement** document
+shown above. Two interchangeable engines emit the **same** shape:
 
 - **`claude` (default, offline, no API key)** — Claude reads the artifact + external prompt/template
-  files and produces the document in-chat.
+  files and produces the document in-chat. (This is how the example above was generated.)
 - **`openai`** — runs the script against the OpenAI API with `json_schema` structured output.
 
 ```bash
 # OpenAI engine (needs OPENAI_API_KEY in .env — see skills/spec-distiller/.env.example)
 uv run skills/spec-distiller/scripts/extract_requirements.py \
   data/_singles/fl1DSmwQKKY.json --engine openai --print
-```
-
-Every requirement has a stable id `<MODULE>-<FEATURE>-<NNN>` and a `trace` back to a real transcript
-segment. Distilling the running example — [*"What is Claude Code?"*](https://www.youtube.com/watch?v=fl1DSmwQKKY) —
-yields a document shaped like this:
-
-```markdown
-### CODE — Claude Code
-
-#### READ — Understand the codebase
-
-- **CODE-READ-001**: The agent reads the existing codebase so its changes fit the surrounding code.
-  _(trace: timestamp 00:41, segment 8)_
-
-#### EDIT — Edit files across the repo
-
-- **CODE-EDIT-001**: The agent edits files directly, applying changes across multiple files in one
-  task. _(trace: timestamp 01:05, segment 14)_
-
-#### RUN — Run terminal commands
-
-- **CODE-RUN-001**: The agent runs shell commands (build, test, git) on the user's confirmation.
-  _(trace: timestamp 01:28, segment 19)_
 ```
 
 Config precedence is **CLI flag > env var > built-in default**. See
