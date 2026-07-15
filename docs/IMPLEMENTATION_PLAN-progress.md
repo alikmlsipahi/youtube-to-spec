@@ -21,7 +21,7 @@
 - [green] T-S1-09 — build_manifest
 - [green] T-S1-10 — parse_hidden_unavailable
 - [green] T-S1-11 — graceful degradation (fetch_metadata)
-- [green] T-S1-12 — request_delay (jittered inter-request sleep) — verified: test_request_delay.py 10/10, full skill-1 suite 132/132, no regressions
+- [accepted] T-S1-12 — request_delay (jittered inter-request sleep) — verified: test_request_delay.py 10/10, full skill-1 suite 132/132, no regressions; end-to-end live-run verification below (SK1-ORCH v2.2)
 
 ## Skill 2 — `feature-requirement-extractor` (unit / blind-TDD)
 
@@ -41,6 +41,7 @@
 
 - [done] SK1-ORCH — extract_artifacts.py main/CLI/IO + enumerate_playlist/fetch_transcript/build_artifact/write_* (verified by I-01 ✓, I-02 ✓)
   - [done] **[v2.1]** title-derived artifact filenames — `artifact_basename` re-signed + `common_title_prefix` / `scan_existing` added; `--skip-existing` now resolves via the on-disk id index. `slugify`/`collection_dir_name` (T-S1-04) untouched, so no blind-TDD chain was re-opened. Re-verified: real playlist → `01-tek-tek-ogrenci-yukleme.json` … `19-…`, manifest `summary` unchanged (24/19 ok/5 failed), `--skip-existing` second pass skipped 19 in 0.09s (no network); 247 unit tests green.
+  - [done] **[v2.2]** jittered `--sleep-requests` moved to fire before every network-hitting iteration (except the first), gated on a `hit_network` flag; old unconditional end-of-loop sleep removed. Built on new pure helper `request_delay` (T-S1-12, blind-TDD, green: 10/10 own tests, 132/132 full skill-1 suite). Re-verified live: two invalid ids w/ `--sleep-requests 3` → 5.955s then 5.610s on a repeat run (metadata_failed pays the delay now; jitter varies run to run, not fixed); real single-video collect unaffected (3.276s, one network call, no sleep); `--skip-existing` w/ `--sleep-requests 30` still 0.101s (no network → free); default path (no `--sleep-requests`) unchanged at 3.242s.
 - [done] SK2-ORCH — extract_requirements.py main/CLI + OpenAI engine (load_prompt_files/build_response_format/call_openai/process_artifact/write_outputs) (verified by I-03 ✓; claude-path ✓)
   - [done] **[v2.1]** `write_outputs` names outputs after the source artifact's basename instead of `video.id`, keeping Skill 1 the only owner of naming policy; `SKILL.md` step 6 re-authored to match so both engines agree. Re-verified: `01-tek-tek-ogrenci-yukleme.requirements.{json,md}`; `resolve_inputs` still resolves all 19 members via the manifest.
 

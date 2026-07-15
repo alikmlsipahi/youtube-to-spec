@@ -314,6 +314,7 @@ Each row = one requirement with a stable id used by the checklist. **Pure/offlin
 | T-S1-09 | `build_manifest` | ok + failed members; failed carry status+reason, `files=null`; summary counts correct; order preserved |
 | T-S1-10 | `parse_hidden_unavailable` | extracts `5` from stderr WARNING; `0` when absent |
 | T-S1-11 | graceful degradation | `fetch_metadata` returns `None` on nonzero subprocess (mocked) → run records `metadata_failed` and continues |
+| T-S1-12 | `request_delay` | jittered inter-request delay for `--sleep-requests`: `base<=0`→`0.0` (rng never called); else `base + base*rng()` ∈ `[base, 2*base)` |
 
 *Skill 2 — `feature-requirement-extractor` (OpenAI engine `scripts/extract_requirements.py`):*
 | id | unit | what the test pins down |
@@ -429,7 +430,11 @@ complete** — `B4`/`B5`/`B6` require the `SKILL.md` files and Skill 2 assets to
 ## Risks & mitigations
 
 - **yt-dlp / YouTube fragility & rate-limiting** over ~24 sequential per-video calls → subprocess
-  isolation + per-video try/except + `--sleep-requests`; record `tool_versions`.
+  isolation + per-video try/except + `--sleep-requests`; record `tool_versions`. `--sleep-requests`
+  applies a **jittered** delay (`request_delay`, T-S1-12) before every network-hitting iteration
+  (except the first) — including ones that go on to fail — rather than a fixed interval only after a
+  success, so back-to-back failures don't hot-loop and the traffic pattern doesn't read as an obvious
+  fixed-interval bot signature. `--skip-existing` hits never touch the network and stay free.
 - **Schema drift** Skill 1 → Skill 2 → `schema_version` + defensive reads in Skill 2.
 - **UTF-8 / Turkish text & long descriptions** → write UTF-8 everywhere; keep JSON lossless, trim/fence
   only the Markdown *view*.
