@@ -35,6 +35,11 @@
 - [green] T-S2-05 — composite-key uniqueness
 - [green] T-S2-06 — env key loading
 - [green] T-S2-07 — input resolution
+- [accepted] T-S2-09 — normalize_trace_indexes — **record gap, not a coverage gap.** Tests
+  (`test_trace_index_validation.py`) existed from the start; the catalog id and spec did not, so the
+  unit was invisible to the record. Catalogued + spec'd 2026-07-15. The spec is **descriptive**
+  (transcribed from the docstring after the tests existed), not a blind contract — flagged as such in
+  its own header, since presenting a retrofit as blind-TDD would falsify the record a second time.
 
 ## Orchestration (non-blind glue; no unit test — integration-gated)
 
