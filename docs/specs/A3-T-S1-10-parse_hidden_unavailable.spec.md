@@ -2,8 +2,12 @@
 
 > Behavioral contract for the blind implementer. Source of truth: `docs/IMPLEMENTATION_PLAN_v2.md`
 > (§Functions #2 `enumerate_playlist` — "`hidden_unavailable_count` parsed from stderr WARNING";
-> §Grounding "yt-dlp omits the 5 hidden unavailable videos from the flat list and warns on stderr";
-> catalog row T-S1-10; capability "Graceful degradation" — the hidden-unavailable count is captured).
+> §Grounding — yt-dlp reports the hidden-unavailable count on stderr; catalog row T-S1-10;
+> capability "Graceful degradation" — the hidden-unavailable count is captured).
+> *(Provenance corrected 2026-07-15: this header used to quote §Grounding's "yt-dlp **omits** the 5
+> hidden unavailable videos from the flat list", which was measured false — they are listed, with a
+> null title. This unit only parses stderr, so its behavior is unaffected; only the quoted rationale
+> was wrong. See T-S1-15 `enumerate_playlist`.)*
 > **No test code, no golden output tables here.**
 
 ## One-line purpose
@@ -81,7 +85,18 @@ playlist had more members than the flat listing returned (graceful-degradation v
 
 ## NEEDS CLARIFICATION
 
-- [NEEDS CLARIFICATION] The exact yt-dlp wording can vary by version. This spec anchors on the
+- [RESOLVED 2026-07-15] The exact yt-dlp wording can vary by version. This spec anchors on the
   `<N> unavailable videos` phrase (the stable part). If a future yt-dlp drops that phrasing, the parser
   would return `0` and the count would be silently lost — acceptable for Phase 1, noted for the
-  integration tier (I-02 verifies the real `5` against a live playlist).
+  integration tier (I-02 verifies the count against a live playlist).
+
+  **The predicted drift has since happened, and the anchor held.** This tier's fixture wording is
+  `"There are 5 unavailable videos that are hidden from this list."`; current yt-dlp emits
+  `"YouTube said: INFO - 5 unavailable videos are hidden"` — a different sentence that still contains
+  the anchor, so both parse to `5`. The anchor choice was right.
+
+  I-02 is now an automated gate (`tests/integration/test_skill1_playlist.py`), where it was previously
+  only a prose prompt — i.e. this deferral pointed at a gate that did not exist, and the drift above
+  went unnoticed for a year. The gate asserts `hidden_unavailable_count > 0` rather than `== 5`: the
+  count is upstream data that changes when the channel does, whereas *the parse still firing on real
+  stderr* is what this unit owns and what silent loss would look like.

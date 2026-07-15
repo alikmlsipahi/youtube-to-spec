@@ -73,8 +73,12 @@ Newly locked this session:
 - Relational integrity (§İlişkisel Bütünlük): every artifact explicitly linked to its video and
   collection; playlist grouping is a first-class preserved relation → `collection{}` block + manifest.
 - Two-stage yt-dlp extraction confirmed: `--flat-playlist` gives playlist meta + thin per-entry fields;
-  description/tags/chapters/upload_date need a per-video `--dump-json`. yt-dlp omits the 5 hidden
-  unavailable videos from the flat list and warns on stderr.
+  description/tags/chapters/upload_date need a per-video `--dump-json`. yt-dlp **lists** the 5 hidden
+  unavailable videos in the flat output — carrying a `null` title — and *additionally* warns their
+  count on stderr. *(Corrected 2026-07-15: this line previously said yt-dlp "omits" them. Measured
+  live — all 24 entries returned, 5 with a null title. They enumerate and then fail at the per-video
+  `--dump-json`, which is exactly how 24 members yield 19 ok / 5 `metadata_failed`. The "omits"
+  reading would have made that split unexplainable. Pinned by T-S1-15 + gate I-02.)*
 
 ## Reuse from the existing skill (verified locations)
 
@@ -324,6 +328,7 @@ Each row = one requirement with a stable id used by the checklist. **Pure/offlin
 | T-S1-12 | `request_delay` | jittered inter-request delay for `--sleep-requests`: `base<=0`→`0.0` (rng never called); else `base + base*rng()` ∈ `[base, 2*base)` |
 | T-S1-13 | `artifact_basename` / `common_title_prefix` | **[v2.1]** title slug basename; shared boilerplate prefix dropped at token boundary; position zero-padded (floor 2); video-id fallback when the title yields no slug; prefix `""` when <3 usable titles or when dropping would empty a member |
 | T-S1-14 | `scan_existing` | `{video_id: basename}` read off disk (id from `video.id`, never parsed from the filename); `_manifest.json` + `*.requirements.json` excluded; unreadable files ignored, never fatal; no network |
+| T-S1-15 | `enumerate_playlist` | flat-playlist JSON → `{id,title,uploader,entries[{id,title}],hidden_unavailable_count}`; **order preserved**; unavailable members kept (null title, not filtered); count from stderr via T-S1-10; nonzero exit / unparseable stdout / missing yt-dlp → `None`, never raises (mocked subprocess) |
 
 *Skill 2 — `feature-requirement-extractor` (OpenAI engine `scripts/extract_requirements.py`):*
 | id | unit | what the test pins down |
