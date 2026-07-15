@@ -251,6 +251,14 @@ The undecided ones are logged in `to-do.md`.
 - [NEEDS CLARIFICATION] **A non-playlist URL reaching this function** (e.g. yt-dlp returns a single-video
   document with no `entries`). `classify_input` (T-S1-03) is specified to prevent this, so no real caller
   reaches it; the behavior is undefined and deliberately untested.
+- [KNOWN DEFECT 2026-07-15] **Return code 0 with valid JSON that is not an object → the function
+  raises**, violating its own "never raises" contract and killing the run. `json.loads` succeeds on
+  `[1,2,3]` or `null`, and the subsequent read of `entries` sits *outside* the try, so an
+  `AttributeError` escapes. Measured, not inferred: a mocked `subprocess.run` returning
+  `stdout='[1,2,3]'` raises `AttributeError: 'list' object has no attribute 'get'`; `'null'` the same.
+  The sibling `fetch_metadata` is unaffected — it never assumes a dict. Not fixed with v2.3 (out of
+  that change's scope); tracked in `to-do.md` §Skill 1 — bilinen açıklar, item 1. The fix belongs here
+  as an edge case (`isinstance(data, dict)` → `(None, "permanent")`) once taken.
 - [RESOLVED 2026-07-15] **Whether the rate-limit machinery applies to this enumeration call — it
   does.** The question was previously open because the risk section frames the delay as covering
   "~24 sequential **per-video** calls", which reads as the per-video loop, leaving the single up-front

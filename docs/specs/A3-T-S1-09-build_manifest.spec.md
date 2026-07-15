@@ -93,7 +93,17 @@ Member order is never re-sorted.
   catalog row requires failed members to "carry status+reason".
 - [ASSUMPTION] `no_transcript` counts only `ok` members lacking a transcript (failed videos are already
   counted under `failed`, so they are excluded to avoid double-counting). See NEEDS CLARIFICATION.
-- [ASSUMPTION] `failed` aggregates both `metadata_failed` and `skipped_unavailable` (any non-`ok` status).
+- [ASSUMPTION] `failed` aggregates every non-`ok` status. This is why `rate_limited` (added in v2.3)
+  needed no change here: the rule is generic, not an enum listing. Note the enum named
+  `skipped_unavailable` for a year while no code path emitted it; v2.3 dropped it from `PLAN_v2`.
+- [KNOWN DEFECT 2026-07-15] **`no_transcript` miscounts `--skip-existing` members.** A skipped member
+  carries `transcript: None` (nothing was fetched — the artifact was already on disk), and the
+  `available is not True` test reads that as "no transcript", so videos that *do* have transcripts are
+  reported as lacking them. Measured, not inferred: `build_manifest` with a single
+  `skipped (already exists)` member returns `no_transcript: 1`. The distinction the counter needs is
+  "not fetched this run" vs "fetched and genuinely absent". Only a summary number is wrong — no data
+  is lost and nothing downstream branches on it — so it is not fixed; tracked in `to-do.md`
+  §Skill 1 — bilinen açıklar, item 5.
 - [ASSUMPTION] The `collection` descriptor arrives pre-shaped; this unit does not re-derive or re-key it.
 
 ## Key entities (canonical schema excerpt)
