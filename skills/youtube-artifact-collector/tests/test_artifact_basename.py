@@ -158,6 +158,23 @@ def test_sub_ten_total_floor_applies_to_first_position_too(mod):
     assert result == "01-alpha"
 
 
+def test_position_without_total_pads_to_the_two_digit_floor(mod):
+    """[RESOLVED] `total` only widens padding past two, so its absence changes nothing."""
+    result = mod.artifact_basename("vid00000001", "Sube Ekleme", 3)
+    assert result == "03-sube-ekleme"
+
+
+def test_position_without_total_matches_the_padding_a_two_digit_total_would_give(mod):
+    without_total = mod.artifact_basename("vid00000001", "Alpha", 7)
+    with_total = mod.artifact_basename("vid00000001", "Alpha", 7, 19)
+    assert without_total == with_total == "07-alpha"
+
+
+def test_two_digit_position_without_total_is_not_widened(mod):
+    result = mod.artifact_basename("vid00000001", "Alpha", 15)
+    assert result == "15-alpha"
+
+
 # --- artifact_basename: video-id fallback ------------------------------------
 
 def test_absent_title_falls_back_to_video_id(mod):
@@ -224,6 +241,29 @@ def test_strip_prefix_is_front_anchored_only(mod):
     """[ASSUMPTION] A matching run that is not leading is left alone."""
     result = mod.artifact_basename("vid00000001", "One Alpha Beta", strip_prefix="alpha-beta")
     assert result == "one-alpha-beta"
+
+
+def test_strip_prefix_equal_to_the_whole_title_slug_strips_nothing(mod):
+    """[RESOLVED] Stripping needs a hyphen after the prefix; a slug equal to it has none."""
+    result = mod.artifact_basename("vid00000001", "Alpha Beta Gamma", strip_prefix="alpha-beta-gamma")
+    assert result == "alpha-beta-gamma"
+
+
+def test_strip_prefix_equal_to_the_whole_slug_does_not_reach_the_video_id_fallback(mod):
+    """The slug survives whole, so nothing is left empty and the id never stands in."""
+    result = mod.artifact_basename("fl1DSmwQKKY", "Sube Ekleme", strip_prefix="sube-ekleme")
+    assert result == "sube-ekleme"
+    assert result != "fl1DSmwQKKY"
+
+
+def test_strip_prefix_equal_to_a_single_token_slug_strips_nothing(mod):
+    result = mod.artifact_basename("fl1DSmwQKKY", "Alpha", strip_prefix="alpha")
+    assert result == "alpha"
+
+
+def test_collection_member_whose_slug_equals_the_strip_prefix_keeps_slug_and_prefix(mod):
+    result = mod.artifact_basename("fl1DSmwQKKY", "Alpha Beta", 3, 19, "alpha-beta")
+    assert result == "03-alpha-beta"
 
 
 # --- The two functions compose ------------------------------------------------

@@ -3,9 +3,7 @@ Spec: docs/specs/A6-T-S1-14-scan_existing.spec.md
 
 Disk I/O but no network I/O, so every case runs against ``tmp_path`` with real
 artifact JSON written into it. Ids are recovered from each artifact's canonical
-``video.id``, never parsed out of the filename. Deliberately out of scope per the
-spec's NEEDS CLARIFICATION list: duplicate video ids in one directory, whether an
-entry requires both `.json` and `.md`, and unexpected non-artifact files.
+``video.id``, never parsed out of the filename.
 """
 
 import json
@@ -244,3 +242,110 @@ def test_returns_a_mapping(mod, tmp_path):
     _write_artifact(tmp_path, "01-sube-ekleme", "vidAAAAAAA1")
     result = mod.scan_existing(tmp_path)
     assert isinstance(result, dict)
+
+
+# --- Duplicate video ids: one entry, deterministically chosen -----------------
+
+def test_duplicate_video_id_yields_exactly_one_entry(mod, tmp_path):
+    """[RESOLVED] A leftover from a run before a title change: same id, two basenames."""
+    _write_artifact(tmp_path, "01-eski-baslik", "vidAAAAAAA1")
+    _write_artifact(tmp_path, "01-yeni-baslik", "vidAAAAAAA1")
+    result = mod.scan_existing(tmp_path)
+    assert len(result) == 1
+    assert list(result) == ["vidAAAAAAA1"]
+
+
+def test_duplicate_video_id_last_basename_in_sorted_order_wins(mod, tmp_path):
+    """[RESOLVED] The scan is ordered by filename, so the sorted-last basename wins."""
+    _write_artifact(tmp_path, "01-eski-baslik", "vidAAAAAAA1")
+    _write_artifact(tmp_path, "01-yeni-baslik", "vidAAAAAAA1")
+    assert mod.scan_existing(tmp_path) == {"vidAAAAAAA1": "01-yeni-baslik"}
+
+
+def test_duplicate_winner_is_sorted_last_regardless_of_write_order(mod, tmp_path):
+    """The written-first file wins here, proving order comes from the name, not the disk."""
+    _write_artifact(tmp_path, "99-zeta", "vidAAAAAAA1")
+    _write_artifact(tmp_path, "01-alpha", "vidAAAAAAA1")
+    assert mod.scan_existing(tmp_path) == {"vidAAAAAAA1": "99-zeta"}
+
+
+def test_duplicate_id_does_not_disturb_the_other_artifacts(mod, tmp_path):
+    _write_artifact(tmp_path, "01-eski-baslik", "vidAAAAAAA1")
+    _write_artifact(tmp_path, "02-yeni-baslik", "vidAAAAAAA1")
+    _write_artifact(tmp_path, "03-rapor-alma", "vidCCCCCCC3")
+    assert mod.scan_existing(tmp_path) == {
+        "vidAAAAAAA1": "02-yeni-baslik",
+        "vidCCCCCCC3": "03-rapor-alma",
+    }
+
+
+def test_same_directory_always_yields_the_same_index(mod, tmp_path):
+    """Determinism is the property that matters, duplicates included."""
+    _write_artifact(tmp_path, "01-eski-baslik", "vidAAAAAAA1")
+    _write_artifact(tmp_path, "01-yeni-baslik", "vidAAAAAAA1")
+    _write_artifact(tmp_path, "02-personel-ekleme", "vidBBBBBBB2")
+    first = mod.scan_existing(tmp_path)
+    for _ in range(4):
+        assert mod.scan_existing(tmp_path) == first
+
+
+# --- A md-only folder carries no ids ------------------------------------------
+
+def test_md_only_directory_returns_empty_mapping(mod, tmp_path):
+    """[RESOLVED] A --format md run cannot be skip-resolved: ids live in the JSON."""
+    (tmp_path / "01-sube-ekleme.md").write_text("# Şube Ekleme\n", encoding="utf-8")
+    (tmp_path / "02-personel-ekleme.md").write_text("# Personel Ekleme\n", encoding="utf-8")
+    assert mod.scan_existing(tmp_path) == {}
+
+
+def test_md_view_mentioning_the_video_id_still_contributes_no_entry(mod, tmp_path):
+    """The rendered view is never parsed, however id-shaped its text looks."""
+    (tmp_path / "01-sube-ekleme.md").write_text(
+        "# Şube Ekleme\n\n- id: vidAAAAAAA1\n- url: https://www.youtube.com/watch?v=vidAAAAAAA1\n",
+        encoding="utf-8",
+    )
+    assert mod.scan_existing(tmp_path) == {}
+
+
+# --- Stray files cannot interfere ---------------------------------------------
+
+def test_stray_non_json_files_never_match_the_glob(mod, tmp_path):
+    """[RESOLVED] Only `*.json` is globbed, so .DS_Store and swap files never match."""
+    _write_artifact(tmp_path, "01-sube-ekleme", "vidAAAAAAA1")
+    (tmp_path / ".DS_Store").write_bytes(b"\x00\x01\x02binary junk")
+    (tmp_path / ".01-sube-ekleme.json.swp").write_bytes(b"\x62\x30VIM swap junk")
+    (tmp_path / "notes.txt").write_text("scratch\n", encoding="utf-8")
+    assert mod.scan_existing(tmp_path) == {"vidAAAAAAA1": "01-sube-ekleme"}
+
+
+def test_nested_subdirectory_is_not_descended_into(mod, tmp_path):
+    """[ASSUMPTION] The scan covers `out_dir` itself and is not recursive."""
+    _write_artifact(tmp_path, "01-sube-ekleme", "vidAAAAAAA1")
+    nested = tmp_path / "archive"
+    nested.mkdir()
+    _write_artifact(nested, "02-nested", "vidNESTED002")
+    assert mod.scan_existing(tmp_path) == {"vidAAAAAAA1": "01-sube-ekleme"}
+
+
+def test_directory_named_like_an_artifact_falls_under_unreadable(mod, tmp_path):
+    """[RESOLVED] It matches the glob but fails to read, so it is ignored, not fatal."""
+    (tmp_path / "01-a-directory.json").mkdir()
+    assert mod.scan_existing(tmp_path) == {}
+
+
+def test_directory_named_like_an_artifact_does_not_block_real_artifacts(mod, tmp_path):
+    _write_artifact(tmp_path, "01-good", "vidAAAAAAA1")
+    (tmp_path / "02-a-directory.json").mkdir()
+    _write_artifact(tmp_path, "03-also-good", "vidCCCCCCC3")
+    assert mod.scan_existing(tmp_path) == {"vidAAAAAAA1": "01-good", "vidCCCCCCC3": "03-also-good"}
+
+
+def test_stray_files_are_left_unmodified_by_the_scan(mod, tmp_path):
+    _write_artifact(tmp_path, "01-sube-ekleme", "vidAAAAAAA1")
+    (tmp_path / ".DS_Store").write_bytes(b"\x00\x01\x02binary junk")
+    (tmp_path / "archive").mkdir()
+    before = _snapshot(tmp_path)
+
+    mod.scan_existing(tmp_path)
+
+    assert _snapshot(tmp_path) == before

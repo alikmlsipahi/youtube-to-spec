@@ -137,6 +137,16 @@ consumed by the `main()` loop behind the `--skip-existing` CLI flag
 here with their resolutions because the reasoning is the useful part — each was a place the docs had
 never decided anything, and the decision is now the contract rather than an accident of the code.
 
+> **Honesty note on what a green test proves here.** These resolutions were reached *after* the code
+> existed, and some were reached by reading it. Where that is true, the accompanying tests are
+> **ratifications, not confirmations**: they prove the behavior is now pinned against future drift,
+> which is real value, but they cannot prove the behavior was independently correct — the usual
+> blind-TDD guarantee (spec first, so a test can disagree) does not apply retroactively.
+> The **duplicate-id rule is the clear case**: "last in sorted order wins" describes what the code
+> does; the genuine decision was only *that the outcome must be deterministic*. The md-only,
+> stray-file, and manifest rules are structural facts (ids live in the JSON; the glob is `*.json`;
+> `_singles/` has no manifest) rather than choices, so nothing was really open about them.
+
 - [RESOLVED 2026-07-15] **Duplicate video ids in one directory** (a leftover artifact from a run before
   a title change, so the same id exists under two basenames). **Decision: the scan is ordered, so the
   outcome is deterministic — the last basename in sorted order wins.** A `dict` can hold one entry per
