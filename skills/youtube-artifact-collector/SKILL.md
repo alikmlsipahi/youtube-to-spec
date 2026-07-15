@@ -158,6 +158,15 @@ succeed, while `rate_limited` is the same video on a better day. Every
 rate-limited video is also reported on stderr, because only a collection has a
 manifest to record it in — a single video would otherwise fail silently.
 
+A third case is recorded as `unrecognized`: a failure the collector could not
+identify at all. It decides whether to retry by matching YouTube's own error
+wording, and that wording changes — so rather than guessing, an unrecognized
+failure says so, **prints the text it did not recognize**, and refuses to draw
+a conclusion from it. If you see one, the text on stderr is the thing to add to
+the signal list. This is the difference between "we know this video has no
+captions" and "we have no idea what just happened", and the second is never
+written down as the first.
+
 **A `.json` on disk means a complete artifact.** When YouTube blocks a transcript
 we could otherwise have fetched, the artifact is **not written at all** — the
 video is reported and left for the next run. Writing it would be worse than

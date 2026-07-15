@@ -178,10 +178,16 @@ disambiguator's home were left implicit here until 2026-07-15 and are now stated
 names uniform and stable if a playlist later grows past nine members.*
 
 **`_manifest.json`:** `collection{type,id,title,uploader,source_url,hidden_unavailable_count}`,
-`members[]` (position, video_id, title, `status` = ok|metadata_failed|rate_limited,
+`members[]` (position, video_id, title, `status` = ok|metadata_failed|rate_limited|unrecognized,
 `files{json,md}`|null, `transcript{available,language,type}`), `summary{total,ok,failed,no_transcript}`.
 Failed videos are **listed with status+reason**, never silently dropped.
 
+> **[v2.5]** `unrecognized` marks a video lost to a failure the classifier recognized **nothing**
+> about. It is deliberately distinct from `metadata_failed`: that one is a conclusion we reached,
+> this one is the absence of a conclusion. Its artifact is **not written** — an unrecognized failure
+> is not evidence that a video has no captions, and writing it down would let a drifted signal become
+> permanent silent data loss.
+>
 > **[v2.3]** `rate_limited` marks a video whose metadata or transcript fetch was **transiently**
 > blocked and still failing after its full retry budget. It is distinct from `metadata_failed`
 > (permanent — private, removed, no captions) because the two want opposite responses: one is worth
@@ -337,7 +343,7 @@ Each row = one requirement with a stable id used by the checklist. **Pure/offlin
 | T-S1-13 | `artifact_basename` / `common_title_prefix` | **[v2.1]** title slug basename; shared boilerplate prefix dropped at token boundary; position zero-padded (floor 2); video-id fallback when the title yields no slug; prefix `""` when <3 usable titles or when dropping would empty a member |
 | T-S1-14 | `scan_existing` | `{video_id: basename}` read off disk (id from `video.id`, never parsed from the filename); `_manifest.json` + `*.requirements.json` excluded; unreadable files ignored, never fatal; no network |
 | T-S1-15 | `enumerate_playlist` | flat-playlist JSON → `{id,title,uploader,entries[{id,title}],hidden_unavailable_count}`; **order preserved**; unavailable members kept (null title, not filtered); count from stderr via T-S1-10; never raises (mocked subprocess). **[v2.3 re-signed]** returns `(playlist, failure)` like T-S1-11 and is retried on `"transient"` — one 429 here kills a playlist collect before it fetches anything |
-| T-S1-16 | `classify_failure` | **[v2.3]** `(name, text)` → `"transient"`\|`"permanent"`. Strings, not exception classes: the unit tier stubs the network deps in `sys.modules`, so `except SomeLibError:` on a stubbed attribute would take the tier down. One signature serves both the yt-dlp (stderr, no name) and transcript-api (exception) sources. Any transient signal present wins; unknown → `"permanent"` (retrying what we don't understand is traffic aimed at a service that just failed us). Folds `’`→`'`: YouTube ships the bot check typographically, so an ASCII-only signal would miss its own real text |
+| T-S1-16 | `classify_failure` | **[v2.3]** `(name, text)` → `"transient"`\|`"permanent"`. Strings, not exception classes: the unit tier stubs the network deps in `sys.modules`, so `except SomeLibError:` on a stubbed attribute would take the tier down. One signature serves both the yt-dlp (stderr, no name) and transcript-api (exception) sources. Any transient signal present wins; unknown → `"permanent"` (retrying what we don't understand is traffic aimed at a service that just failed us). Folds `’`→`'`: YouTube ships the bot check typographically, so an ASCII-only signal would miss its own real text **[v2.5]** Third verdict `"unknown"`: the fall-through used to return `"permanent"` too, so the unit computed the difference between *knowing* a failure is permanent and *recognizing nothing* and then discarded it — the same collapse as `fetch_metadata`'s pre-v2.3 `None`. Retry policy unchanged (callers test `!= "transient"`); what it buys is that the caller can refuse to write a conclusion it never reached, and print the text it did not recognize. |
 | T-S1-17 | `backoff_delay` | **[v2.3]** `request_delay(min(base * 2**attempt, cap), rng)` — jitter delegated to T-S1-12, not forked. Zero-based `attempt`; defaults give rungs 5/10/20/40/80s. Full jitter (`[0, d)`) rejected: a near-zero wait after a 429 is how a soft throttle becomes a hard block |
 | T-S1-18 | `escalate_pacing` | **[v2.3]** `min(current*factor, ceiling)`, floored at `0.0`, `current<=0` → `0.0` (the `--sleep-requests 0` opt-out survives escalation). Permanent per-run slowdown after each rate-limit event; no decay. Reconciles "mark and continue" with "never get banned" |
 | T-S1-19 | `atomic_write_text` | **[v2.3]** same-dir temp → `fsync` → `os.replace`; temp cleaned on failure; errors propagate (a local write failure means the output dir is unusable — unlike a network miss, it must not degrade). `fsync` is not optional: renaming un-synced data can leave a zero-length file where a valid one was |
@@ -481,6 +487,32 @@ complete** — `B4`/`B5`/`B6` require the `SKILL.md` files and Skill 2 assets to
      *without touching `scan_existing`* — the half artifact that would defeat it never exists. A
      genuine absence of captions is complete and is written as before. `--metadata-only` remains the
      way to deliberately collect metadata alone.
+- **[v2.5] The whole of v2.3 rests on recognizing someone else's copy, and that copy changes.**
+  `classify_failure` decides retry by substring-matching YouTube's and yt-dlp's wording. When the
+  wording drifts the signal misses, and — before v2.5 — the failure was silently relabelled
+  `"permanent"`: retry stops, a blocked transcript is written down as "this video has no captions",
+  and **no test breaks**. This is not hypothetical; it has happened twice (T-S1-10's stderr anchor
+  broke on a yt-dlp rewording; the bot check ships with a typographic apostrophe that an ASCII signal
+  missed, caught by an implementer rather than a test). Mitigation, in three parts:
+  1. **The classifier says `"unknown"`** rather than guessing. It already computed the distinction and
+     threw it away — the same information-destroying collapse as `fetch_metadata`'s pre-v2.3 `None`,
+     one level up.
+  2. **An unrecognized transcript failure is not written.** `"permanent"` means an *established*
+     absence and licenses recording "no captions" as fact; `"unknown"` establishes nothing. This is
+     what makes drift **harmless** without touching the retry policy — a drifted signal now costs a
+     re-run, not a transcript.
+  3. **The raw text is printed at the moment of classification.** It was destroyed at the return
+     statement, and the evidence is ephemeral: a drifted 429 that has since cleared can never be
+     reproduced.
+
+  **Accepted limit:** this catches drift on *first occurrence*, not before. Proactive detection was
+  ruled out on measurement — a frozen fixture pins text already seen, and scanning the installed
+  yt-dlp finds `Private video` and `members-only` but **zero** occurrences of `not a bot`,
+  `Too Many Requests` or `HTTP Error 429`, because the signals that matter arrive from YouTube's
+  servers, not yt-dlp's code. Drift cannot be prevented; it can only be stopped from being silent.
+  The canary proved itself on day one by exposing that a private *playlist* matched no signal at all —
+  it had been answering `"permanent"` by accident via the fall-through, and its test was green for the
+  wrong reason.
 - **[v2.3] A crash mid-write could corrupt an artifact** → all three writes go through
   `atomic_write_text` (T-S1-19), and the `.md` is written **before** the `.json` so the `.json`
   landing is the run's commit point. `_manifest.json` mattered most: a corrupt artifact self-heals
