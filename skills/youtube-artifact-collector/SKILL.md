@@ -81,7 +81,12 @@ video IDs**, or a **playlist URL**, mixed freely.
 | `--format json\|md\|both` | `both` | Which per-video artifact files to write. |
 | `--metadata-only` | off | Skip transcript fetching; collect metadata only. |
 | `--skip-existing` | off | Skip videos whose artifact **`.json`** already exists under the output root. Resolved by reading the ids back off disk (no network), so it needs the JSON: a collection written with `--format md` cannot be skip-resolved and will be re-fetched, because a rendered Markdown view carries no video id. |
-| `--sleep-requests N` | off | Jittered sleep before each yt-dlp request (except the first) — a random delay in `[N, 2*N)` seconds, not a fixed `N`, to avoid a bot-like fixed-interval pattern. Applies before failed requests too (so repeated failures don't hot-loop); `--skip-existing` hits never touch the network and stay free. |
+| `--sleep-requests N` | `2` | Jittered sleep before each network-hitting video (except the first) — a random delay in `[N, 2*N)` seconds, not a fixed `N`, to avoid a bot-like fixed-interval pattern. Applies before failed requests too (so repeated failures don't hot-loop); `--skip-existing` hits never touch the network and stay free. **`0` disables it** — an explicit opt-out, not the default. |
+| `--retries N` | `5` | How many times to re-try a network call that failed **transiently** (rate limit, bot check, 5xx, timeout). Permanent failures — private, unavailable, no captions — are never retried: re-asking would not change the answer and would aim more traffic at the service the retry budget exists to stay welcome with. |
+| `--retry-base N` | `5.0` | The first retry's delay in seconds; doubles each retry and is jittered like `--sleep-requests`. With the defaults the rungs are 5 → 10 → 20 → 40 → 80s, so a rate-limited video costs ~2.5–5 minutes before it is given up on. |
+| `--retry-cap N` | `300.0` | Ceiling for a single retry's delay. Does not bind at the default `--retries 5`; it is the rail that keeps the doubling bounded if you raise it. |
+| `--max-pacing N` | `60.0` | Ceiling that `--sleep-requests` escalates to. Each video lost to a rate limit **permanently** doubles the pacing for the rest of the run (2 → 4 → … → N): a run that keeps knocking at the same rate after being throttled is how a soft, recoverable throttle becomes a hard IP block. The run still finishes; it stops insisting. |
+| `--timeout N` | `120.0` | Seconds to allow each yt-dlp call before killing it. Previously unbounded — a hung process hung the whole run with no escape. A timeout classifies as transient, so it is retried. |
 
 ### Examples
 
@@ -143,9 +148,24 @@ consumers resolve artifacts through the manifest rather than reconstructing name
 
 Each video is fetched in isolation. A private, deleted, or otherwise
 unavailable video does **not** abort the run: its metadata fetch returns nothing,
-the run records the member as `metadata_failed` (or `skipped_unavailable`) with a
-reason, and continues. Playlists also report `hidden_unavailable_count` — the
-number of members YouTube hides from the listing — parsed from yt-dlp's warning.
+the run records the member as `metadata_failed` with a reason, and continues.
+Playlists also report `hidden_unavailable_count` — the number of members YouTube
+hides from the listing — parsed from yt-dlp's warning.
+
+A **rate-limited** video is a different animal and is recorded differently, as
+`rate_limited`. The distinction is the point: `metadata_failed` will never
+succeed, while `rate_limited` is the same video on a better day. Every
+rate-limited video is also reported on stderr, because only a collection has a
+manifest to record it in — a single video would otherwise fail silently.
+
+**A `.json` on disk means a complete artifact.** When YouTube blocks a transcript
+we could otherwise have fetched, the artifact is **not written at all** — the
+video is reported and left for the next run. Writing it would be worse than
+useless: an artifact with an empty transcript is indistinguishable from a video
+that genuinely has no captions, `--skip-existing` would skip it forever, and the
+block would quietly become permanent. A video that really has no captions *is*
+complete and is written as normal. Use `--metadata-only` to collect metadata
+alone on purpose.
 
 ## Tooling
 

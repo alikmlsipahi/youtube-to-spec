@@ -37,8 +37,14 @@ The pipeline doesn't care about domain — swap the prompt files in `skills/spec
 - Saves a lossless `.json` artifact and a readable `.md` file per video, named after the video's
   title — playlist members keep their position (`01-tek-tek-ogrenci-yukleme.json`)
 - For playlists: produces a `_manifest.json` with the full member list — missing or private videos are listed, never silently skipped
-- Long runs stay polite: `--skip-existing` resumes without re-fetching, and `--sleep-requests` paces
-  requests with **randomized** delays rather than a fixed interval
+- Long runs stay polite: `--skip-existing` resumes without re-fetching, and requests are paced with
+  **randomized** delays rather than a fixed interval
+- Rate limits are survived, not absorbed: transient failures (429, bot check, timeout) are retried
+  with capped exponential backoff, permanent ones (private, no captions) are not retried at all, and
+  every rate-limit event permanently slows the rest of the run
+- **A `.json` on disk means a complete artifact.** A transcript YouTube blocked is never written down
+  as a transcript that doesn't exist — the video is reported and left for the next run to retry.
+  Writes are atomic (`os.replace`), so a crash can't leave a half-written file either
 
 **Skill 2 — `spec-distiller`**
 - Reads a Skill 1 artifact and produces a requirements document
@@ -114,7 +120,12 @@ uv run skills/spec-distiller/scripts/extract_requirements.py \
 | `--langs tr,en` | `tr,en` | Transcript language preference, in order. A **manual** track wins over an auto one in the same language; falls back to the first available track. |
 | `--metadata-only` | off | Skip transcripts, collect metadata only. Halves the network calls. |
 | `--skip-existing` | off | Skip videos whose `.json` is already on disk — resume a long run without re-fetching. Costs no network at all. |
-| `--sleep-requests N` | off | Wait between requests to stay rate-limit friendly. The delay is **jittered** — a random `[N, 2×N)` seconds rather than a fixed `N`, so the traffic doesn't read as an obvious bot pattern. It's paid before *every* request including ones that fail, so repeated failures can't hot-loop. |
+| `--sleep-requests N` | `2` | Wait between videos to stay rate-limit friendly. The delay is **jittered** — a random `[N, 2×N)` seconds rather than a fixed `N`, so the traffic doesn't read as an obvious bot pattern. It's paid before *every* request including ones that fail, so repeated failures can't hot-loop. Pass `0` to opt out. |
+| `--retries N` | `5` | Re-try a **transiently** failed call (rate limit, bot check, 5xx, timeout). Permanent failures — private, unavailable, no captions — are never retried. |
+| `--retry-base N` | `5.0` | First retry's delay; doubles each time and is jittered. Defaults give 5 → 10 → 20 → 40 → 80s, so a rate-limited video costs ~2.5–5 min before it's given up on. |
+| `--retry-cap N` | `300.0` | Ceiling for one retry's delay. Doesn't bind at `--retries 5`; it's the rail if you raise it. |
+| `--max-pacing N` | `60.0` | Ceiling the pacing escalates to. Every video lost to a rate limit permanently doubles the gap for the rest of the run. |
+| `--timeout N` | `120.0` | Kill a yt-dlp call that takes longer. Was unbounded before. Counts as transient, so it's retried. |
 | `--format json\|md\|both` | `both` | Which per-video files to write. |
 | `--root DIR` | `data` | Output root. |
 | `--out-dir NAME` | derived | Override the collection folder name. |

@@ -178,15 +178,23 @@ disambiguator's home were left implicit here until 2026-07-15 and are now stated
 names uniform and stable if a playlist later grows past nine members.*
 
 **`_manifest.json`:** `collection{type,id,title,uploader,source_url,hidden_unavailable_count}`,
-`members[]` (position, video_id, title, `status` = ok|metadata_failed|skipped_unavailable,
+`members[]` (position, video_id, title, `status` = ok|metadata_failed|rate_limited,
 `files{json,md}`|null, `transcript{available,language,type}`), `summary{total,ok,failed,no_transcript}`.
 Failed videos are **listed with status+reason**, never silently dropped.
+
+> **[v2.3]** `rate_limited` marks a video whose metadata or transcript fetch was **transiently**
+> blocked and still failing after its full retry budget. It is distinct from `metadata_failed`
+> (permanent — private, removed, no captions) because the two want opposite responses: one is worth
+> re-running, the other never will be. A `rate_limited` video's artifact is **not written at all** —
+> see §Risks. `skipped_unavailable` was listed here for a year and emitted by nothing; it is dropped
+> rather than carried forward as decoration.
 
 **CLI:**
 ```
 extract_artifacts.py <url_or_id>… [--playlist] [--langs tr,en] [--out-dir NAME]
   [--root data] [--no-save|--print] [--format json|md|both] [--metadata-only]
-  [--skip-existing] [--sleep-requests N]
+  [--skip-existing] [--sleep-requests 2] [--retries 5] [--retry-base 5.0]
+  [--retry-cap 300.0] [--max-pacing 60.0] [--timeout 120.0]
 ```
 
 **SKILL.md trigger** (de-conflict with `youtube-transcript`): "…collect metadata **AND** transcripts for
@@ -324,11 +332,15 @@ Each row = one requirement with a stable id used by the checklist. **Pure/offlin
 | T-S1-08 | `render_markdown` | header has title/url/channel/collection; first line `[00:00]`; >1h uses `HH:MM:SS` |
 | T-S1-09 | `build_manifest` | ok + failed members; failed carry status+reason, `files=null`; summary counts correct; order preserved |
 | T-S1-10 | `parse_hidden_unavailable` | extracts `5` from stderr WARNING; `0` when absent |
-| T-S1-11 | graceful degradation | `fetch_metadata` returns `None` on nonzero subprocess (mocked) → run records `metadata_failed` and continues |
+| T-S1-11 | graceful degradation | **[v2.3 re-signed]** `fetch_metadata` returns `(meta, failure)` — `(dict, None)` on success, else `(None, "transient"\|"permanent")` via `classify_failure`; never raises, never exits. The old bare `None` made "private" and "rate-limited" the same value, which is why retry could not be built on it |
 | T-S1-12 | `request_delay` | jittered inter-request delay for `--sleep-requests`: `base<=0`→`0.0` (rng never called); else `base + base*rng()` ∈ `[base, 2*base)` |
 | T-S1-13 | `artifact_basename` / `common_title_prefix` | **[v2.1]** title slug basename; shared boilerplate prefix dropped at token boundary; position zero-padded (floor 2); video-id fallback when the title yields no slug; prefix `""` when <3 usable titles or when dropping would empty a member |
 | T-S1-14 | `scan_existing` | `{video_id: basename}` read off disk (id from `video.id`, never parsed from the filename); `_manifest.json` + `*.requirements.json` excluded; unreadable files ignored, never fatal; no network |
-| T-S1-15 | `enumerate_playlist` | flat-playlist JSON → `{id,title,uploader,entries[{id,title}],hidden_unavailable_count}`; **order preserved**; unavailable members kept (null title, not filtered); count from stderr via T-S1-10; nonzero exit / unparseable stdout / missing yt-dlp → `None`, never raises (mocked subprocess) |
+| T-S1-15 | `enumerate_playlist` | flat-playlist JSON → `{id,title,uploader,entries[{id,title}],hidden_unavailable_count}`; **order preserved**; unavailable members kept (null title, not filtered); count from stderr via T-S1-10; never raises (mocked subprocess). **[v2.3 re-signed]** returns `(playlist, failure)` like T-S1-11 and is retried on `"transient"` — one 429 here kills a playlist collect before it fetches anything |
+| T-S1-16 | `classify_failure` | **[v2.3]** `(name, text)` → `"transient"`\|`"permanent"`. Strings, not exception classes: the unit tier stubs the network deps in `sys.modules`, so `except SomeLibError:` on a stubbed attribute would take the tier down. One signature serves both the yt-dlp (stderr, no name) and transcript-api (exception) sources. Any transient signal present wins; unknown → `"permanent"` (retrying what we don't understand is traffic aimed at a service that just failed us). Folds `’`→`'`: YouTube ships the bot check typographically, so an ASCII-only signal would miss its own real text |
+| T-S1-17 | `backoff_delay` | **[v2.3]** `request_delay(min(base * 2**attempt, cap), rng)` — jitter delegated to T-S1-12, not forked. Zero-based `attempt`; defaults give rungs 5/10/20/40/80s. Full jitter (`[0, d)`) rejected: a near-zero wait after a 429 is how a soft throttle becomes a hard block |
+| T-S1-18 | `escalate_pacing` | **[v2.3]** `min(current*factor, ceiling)`, floored at `0.0`, `current<=0` → `0.0` (the `--sleep-requests 0` opt-out survives escalation). Permanent per-run slowdown after each rate-limit event; no decay. Reconciles "mark and continue" with "never get banned" |
+| T-S1-19 | `atomic_write_text` | **[v2.3]** same-dir temp → `fsync` → `os.replace`; temp cleaned on failure; errors propagate (a local write failure means the output dir is unusable — unlike a network miss, it must not degrade). `fsync` is not optional: renaming un-synced data can leave a zero-length file where a valid one was |
 
 *Skill 2 — `feature-requirement-extractor` (OpenAI engine `scripts/extract_requirements.py`):*
 | id | unit | what the test pins down |
@@ -451,6 +463,34 @@ complete** — `B4`/`B5`/`B6` require the `SKILL.md` files and Skill 2 assets to
   (except the first) — including ones that go on to fail — rather than a fixed interval only after a
   success, so back-to-back failures don't hot-loop and the traffic pattern doesn't read as an obvious
   fixed-interval bot signature. `--skip-existing` hits never touch the network and stay free.
+- **[v2.3] Rate limiting was being absorbed as data loss, not survived.** Every network call collapsed
+  its failure into one value (`fetch_metadata` → `None`, `fetch_transcript` → an empty block), so
+  "YouTube blocked us" and "this video has no captions" were **indistinguishable**. A blocked
+  transcript was recorded `status: "ok"`, its artifact written, `scan_existing` indexed it, and the
+  next `--skip-existing` run skipped it **forever** — the block became permanent. Not hypothetical:
+  I-01 has the event on record from 2026-07-15. The mitigation is three parts:
+  1. **Tell the failures apart** (`classify_failure`, T-S1-16) — the precondition for everything else.
+     Retry without it is worse than no retry: 2.5 minutes of backoff spent on a private video is pure
+     traffic aimed at the service the budget exists to stay welcome with.
+  2. **Retry only the transient ones**, with capped exponential backoff (`backoff_delay`, T-S1-17),
+     and let each rate-limit event permanently slow the rest of the run (`escalate_pacing`, T-S1-18).
+     `--sleep-requests` now defaults to `2.0` — the old `0.0` default meant the safe path was the one
+     you had to know to ask for.
+  3. **A `.json` on disk means a complete artifact.** A transiently-blocked transcript is not written
+     at all; the video is reported and left for the next run. This is what makes resume correct
+     *without touching `scan_existing`* — the half artifact that would defeat it never exists. A
+     genuine absence of captions is complete and is written as before. `--metadata-only` remains the
+     way to deliberately collect metadata alone.
+- **[v2.3] A crash mid-write could corrupt an artifact** → all three writes go through
+  `atomic_write_text` (T-S1-19), and the `.md` is written **before** the `.json` so the `.json`
+  landing is the run's commit point. `_manifest.json` mattered most: a corrupt artifact self-heals
+  (`scan_existing` can't parse it, so it isn't indexed, so the next run re-fetches it), but nothing
+  validates the manifest before Skill 2's `resolve_inputs` reads it.
+- **[v2.3] A run that collects nothing must not exit 0.** A single video has no manifest to record
+  `rate_limited` into, so a blocked single-video collect once exited 0 with no files and no stderr —
+  which CI and shell loops swallow whole. Rate-limited videos are always reported on stderr, and a run
+  that wrote nothing while hitting a rate limit exits 1. Partial failure is unchanged: a playlist that
+  lost some members still exits 0 and lists them.
 - **Schema drift** Skill 1 → Skill 2 → `schema_version` + defensive reads in Skill 2.
 - **UTF-8 / Turkish text & long descriptions** → write UTF-8 everywhere; keep JSON lossless, trim/fence
   only the Markdown *view*.
