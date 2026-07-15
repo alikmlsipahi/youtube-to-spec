@@ -12,12 +12,14 @@ Phase 1 — pure helpers (T-S1-01..04). Remaining functions are added by later u
 
 import argparse
 import json
+import random
 import re
 import subprocess
 import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 
 from youtube_transcript_api import YouTubeTranscriptApi
 
@@ -43,6 +45,19 @@ def format_timestamp(seconds: float) -> str:
     if hours > 0:
         return f"{hours:02d}:{minutes:02d}:{secs:02d}"
     return f"{minutes:02d}:{secs:02d}"
+
+
+def request_delay(base: float, rng: Callable[[], float] = random.random) -> float:
+    """Compute a jittered request delay for the ``--sleep-requests`` flag.
+
+    Pure computation only — never sleeps. ``base <= 0`` means "no delay" and
+    returns ``0.0`` without invoking ``rng``. Otherwise returns a value drawn
+    uniformly from ``[base, 2*base)`` via ``base + base * rng()``, so repeated
+    calls do not sleep for an identical, bot-like interval.
+    """
+    if base <= 0:
+        return 0.0
+    return base + base * rng()
 
 
 def classify_input(args) -> str:
@@ -702,6 +717,7 @@ def main(argv=None) -> int:
     taken = {base: vid for vid, base in index.items()}
 
     members = []
+    hit_network = False
     for video_id, title, position, collection_block in work:
         if args.skip_existing and not print_mode and video_id in index:
             members.append({
@@ -711,6 +727,10 @@ def main(argv=None) -> int:
                 "transcript": None,
             })
             continue
+
+        if hit_network:
+            time.sleep(request_delay(args.sleep_requests))
+        hit_network = True
 
         meta = fetch_metadata(video_id)
         if meta is None:
@@ -759,9 +779,6 @@ def main(argv=None) -> int:
                 "type": selected.get("type"),
             },
         })
-
-        if args.sleep_requests:
-            time.sleep(args.sleep_requests)
 
     if collection_info and not print_mode:
         write_manifest(collection_info, members, out_dir)
