@@ -137,6 +137,11 @@ Consumers **never rebuild** this name: `_manifest.json` records each member's ac
   padded to three digits.
 - **Given** a total of fewer than ten members, **when** `artifact_basename` runs, **then** the position
   is still padded to two digits (the floor), not left bare.
+- **Given** a position but **no** `total`, **when** `artifact_basename` runs, **then** the position is
+  padded to the two-digit floor — `total` only widens padding past two, so its absence changes nothing.
+- **Given** a `strip_prefix` exactly equal to the whole title slug, **when** `artifact_basename` runs,
+  **then** nothing is stripped (no token boundary follows the prefix) and the slug survives whole —
+  the video-id fallback is not reached.
 - **Given** a title that yields no usable slug, **when** `artifact_basename` runs, **then** the video id
   stands in for the slug portion, with its original casing preserved.
 - **Given** a `strip_prefix` that matches only part of a leading token of the title slug, **when**
@@ -177,21 +182,25 @@ prefix-stripping rules constrain it.
 
 ## NEEDS CLARIFICATION
 
-Two items raised in drafting have been **adjudicated** and folded into the behavior above: the
-minimum pad width (floor of two digits — plan wording to be corrected) and the video-id disambiguator
-(out of this unit's scope; the `main()` loop owns it).
+Two items raised in drafting were **adjudicated** and folded into the behavior above: the minimum pad
+width (floor of two digits — plan wording corrected) and the video-id disambiguator (out of this
+unit's scope; the `main()` loop owns it).
 
-The items below remain genuinely unspecified by the documented policy. **They are deliberately left
-out of this unit's tested contract**: writing a test for them would freeze whatever the code happens
-to do today into a contract nobody has decided on. They are logged in `to-do.md` as documentation
-gaps to settle on their own merits.
+Two more were **settled on 2026-07-15** and are now part of the tested contract; their resolutions are
+kept below because the reasoning is the useful part. The remaining two are `common_title_prefix`
+refinements that stay open.
 
-- [NEEDS CLARIFICATION] **`position` supplied without `total`** (or vice versa). Whether this is a valid
-  call, and what pad width applies, is not described. The `main()` loop always supplies both for a
-  collection member and neither for a standalone video, so no real caller reaches this combination.
-- [NEEDS CLARIFICATION] **A `strip_prefix` that would empty this title's slug.** `common_title_prefix`
-  guards against returning one, but `artifact_basename` accepts `strip_prefix` from any caller. Whether
-  it should then fall back to the video id, or leave the prefix in place, is unspecified.
+- [RESOLVED 2026-07-15] **`position` supplied without `total`.** **Decision: valid, and the pad width
+  is the floor of two** — `total` only ever *widens* the padding past two digits, so its absence simply
+  means "no reason to go wider". No real caller reaches this: `main()` supplies both for a collection
+  member and neither for a standalone video. It is a defensive path, and the defensive answer is the
+  same as the ordinary one, which is what makes it safe to leave in place.
+- [RESOLVED 2026-07-15] **A `strip_prefix` that would empty this title's slug.** **Decision: it cannot
+  happen, by construction** — so no fallback rule is needed. Stripping matches at a token boundary
+  (`prefix-`), which requires a hyphen *after* the prefix; a slug exactly equal to `strip_prefix` has no
+  trailing hyphen and is therefore not stripped at all. The slug survives whole. (Belt and braces: even
+  if it were emptied, the video-id fallback in step 3 would catch it — a slug that is empty for any
+  reason yields the id.)
 - [NEEDS CLARIFICATION] Whether `common_title_prefix`'s "destructive" guard tests only the *usable*
   titles it compared, or every entry passed in.
 - [NEEDS CLARIFICATION] Whether the shared-prefix comparison is case-/punctuation-sensitive beyond what

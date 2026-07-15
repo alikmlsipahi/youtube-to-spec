@@ -80,7 +80,7 @@ video IDs**, or a **playlist URL**, mixed freely.
 | `--no-save` / `--print` | off | Print the artifacts to stdout instead of writing files to disk. |
 | `--format json\|md\|both` | `both` | Which per-video artifact files to write. |
 | `--metadata-only` | off | Skip transcript fetching; collect metadata only. |
-| `--skip-existing` | off | Skip videos whose artifact files already exist under the output root. |
+| `--skip-existing` | off | Skip videos whose artifact **`.json`** already exists under the output root. Resolved by reading the ids back off disk (no network), so it needs the JSON: a collection written with `--format md` cannot be skip-resolved and will be re-fetched, because a rendered Markdown view carries no video id. |
 | `--sleep-requests N` | off | Jittered sleep before each yt-dlp request (except the first) — a random delay in `[N, 2*N)` seconds, not a fixed `N`, to avoid a bot-like fixed-interval pattern. Applies before failed requests too (so repeated failures don't hot-loop); `--skip-existing` hits never touch the network and stay free. |
 
 ### Examples

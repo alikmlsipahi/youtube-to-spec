@@ -62,7 +62,16 @@ contents**.
 - **An artifact with no recoverable video id** → ignored, no entry.
 - **The `.md` companion of an indexed artifact** → contributes no separate entry; a video appears **once**
   in the mapping, keyed by its id. [ASSUMPTION]
-- **Two artifacts carrying the same video id** → key collision; see NEEDS CLARIFICATION.
+- **Two artifacts carrying the same video id** → one entry, chosen **deterministically**: the scan is
+  ordered by filename, so the last basename in sorted order wins. The same directory always yields the
+  same index. [RESOLVED 2026-07-15 — see NEEDS CLARIFICATION for the accepted wart]
+- **A folder holding only `.md` files** (a `--format md` run) → an **empty mapping**. Ids live in the
+  canonical JSON; a rendered view carries none. `--skip-existing` therefore cannot resolve a md-only
+  collection and will re-fetch it — a documented limitation, recorded in SKILL.md's flag table.
+  [RESOLVED 2026-07-15]
+- **Stray files** — `.DS_Store`, editor swap files, a nested subdirectory → cannot interfere: only
+  `*.json` is globbed, so they never match. A *directory* named `*.json` matches the glob but fails to
+  read, falling under "unreadable → ignored". [RESOLVED 2026-07-15]
 
 ## Acceptance scenarios (Given / When / Then)
 
@@ -124,23 +133,38 @@ consumed by the `main()` loop behind the `--skip-existing` CLI flag
 
 ## NEEDS CLARIFICATION
 
-The items below are genuinely unspecified by the documented policy. **They are deliberately left out
-of this unit's tested contract**: writing a test for them would freeze whatever the code happens to do
-today into a contract nobody has decided on. They are logged in `to-do.md` as documentation gaps to
-settle on their own merits.
+**All four items below were settled on 2026-07-15** and folded into the behavior above. They are kept
+here with their resolutions because the reasoning is the useful part — each was a place the docs had
+never decided anything, and the decision is now the contract rather than an accident of the code.
 
-- [NEEDS CLARIFICATION] **Duplicate video ids in one directory** (e.g. a leftover artifact from a run
-  before a title change, so the same id exists under two basenames). Whether last-wins, first-wins, or
-  the stale file should be reported is unspecified; the mapping's shape (`dict`) can only hold one.
-- [NEEDS CLARIFICATION] **Whether an entry requires both `.json` and `.md` to be present.** SKILL.md's
-  flag table says `--skip-existing` skips videos "whose artifact files already exist" (plural), but
-  `--format json|md|both` means a run may legitimately have produced only one of them. Whether a
-  json-only artifact counts as "existing" — and whether a `--format md` run can be skip-resolved at all,
-  given ids live in the JSON — is not described.
-- [NEEDS CLARIFICATION] **How other unexpected files in `out_dir` are treated** — e.g. `.DS_Store`,
-  editor swap files, or a nested subdirectory. Presumably they fall under "unreadable → ignored", but the
-  exclusion list names only the manifest and requirement docs.
-- [NEEDS CLARIFICATION] Whether `scan_existing` is expected to consult `_manifest.json` — which already
+- [RESOLVED 2026-07-15] **Duplicate video ids in one directory** (a leftover artifact from a run before
+  a title change, so the same id exists under two basenames). **Decision: the scan is ordered, so the
+  outcome is deterministic — the last basename in sorted order wins.** A `dict` can hold one entry per
+  id, and determinism is what matters: the same directory always yields the same index. Either basename
+  addresses the same video, and `--skip-existing` skips it either way.
+  **Known wart, accepted deliberately:** sorted order is alphabetical, not chronological, so the *stale*
+  file can win and the manifest can then name it. This is rare (it needs a title change plus a leftover)
+  and self-inflicted (deleting the stale file fixes it). Resolving by modification time would fix it
+  properly and is logged in `to-do.md` as possible future work — not done here, because it is a code
+  change dressed up as a clarification.
+- [RESOLVED 2026-07-15] **Whether an entry requires both `.json` and `.md`.** **Decision: only the
+  `.json` matters, and a `--format md` run cannot be skip-resolved at all.** Ids live in the canonical
+  JSON; the `.md` is a rendered view carrying no id. So a json-only artifact counts as existing, and a
+  md-only collection indexes as empty — meaning `--skip-existing` will re-fetch everything. That is a
+  **documented limitation**, not a bug to paper over: recovering an id from a rendered Markdown view
+  would mean parsing the view, which is exactly the coupling `[v2.1]` removed. SKILL.md's flag table
+  now says so.
+- [RESOLVED 2026-07-15] **Unexpected files in `out_dir`** (`.DS_Store`, editor swap files, a nested
+  subdirectory). **Decision: they cannot interfere.** The scan globs `*.json` only, so anything else —
+  including `.md` companions and `.DS_Store` — never even matches. A directory that happens to be named
+  `*.json` fails to read and falls under the existing "unreadable → ignored" rule. No new exclusion is
+  needed; the glob is the filter.
+- [RESOLVED 2026-07-15] Whether `scan_existing` is expected to consult `_manifest.json` — which already
   records `members[].video_id` **and** `files{json,md}` — as a faster or authoritative index instead of
-  reading each artifact. The docstring explicitly skips the manifest, but the plan does not say why the
-  manifest is not the source, nor what should happen when the manifest and the on-disk artifacts disagree.
+  reading each artifact. **Decision: the manifest is not, and cannot be, the index.** Two reasons, now
+  recorded: (1) `_singles/` has **no manifest at all**, so a manifest-based index would only work for
+  collections — this unit must serve both; (2) the manifest records what a *previous run intended*,
+  while `--skip-existing` must answer what is *actually on disk now*. A file deleted by hand after the
+  run still appears in the manifest, and trusting it would skip a video whose artifact no longer
+  exists. Disk is the ground truth, so a disagreement between manifest and disk is resolved in disk's
+  favor by construction — this unit never reads the manifest, so it can never be misled by one.
