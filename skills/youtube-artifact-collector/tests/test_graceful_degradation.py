@@ -3,13 +3,19 @@ Spec: docs/specs/A3-T-S1-11-graceful_degradation.spec.md
 
 Re-signed in v2.3: the return type is now ``tuple[dict | None, str | None]``.
 Exactly one half is ever non-``None`` — a success is ``(dict, None)``, a failure
-is ``(None, "transient" | "permanent")``. The old bare-``None`` contract made
-"this video is private" and "YouTube rate-limited us" the same value, which is
-why the pair of opposite-classification tests below is the centre of this file.
+is ``(None, "transient" | "permanent" | "unknown")``. The old bare-``None``
+contract made "this video is private" and "YouTube rate-limited us" the same
+value, which is why the pair of opposite-classification tests below is the
+centre of this file.
+
+v2.5 adds a third verdict, ``"unknown"``, for failures nothing recognizes. This
+unit's *shape* is untouched by that: it delegates, so it passes the third verdict
+through for free. Only the value returned for an unrecognized failure moves —
+from ``"permanent"`` to ``"unknown"``.
 
 Scope: this unit **delegates** classification to ``classify_failure`` (T-S1-16).
 It is tested here only for capturing the right evidence and passing the verdict
-through, using one realistic representative stderr per class. Which strings map
+through, using one realistic representative stderr per verdict. Which strings map
 to which verdict — the signal lists, casing, the "Sign in to confirm" prefix
 trap, name-vs-text precedence — is T-S1-16's contract and lives in
 ``test_classify_failure.py``.
@@ -27,9 +33,9 @@ from types import SimpleNamespace
 # share this one return code deliberately.
 _SAME_NONZERO_CODE = 1
 
-# One realistic representative per class. Real stderr is multi-line and prefixed,
-# and the signal lives inside a longer line — the evidence this unit must capture
-# whole rather than discard.
+# One realistic representative per verdict. Real stderr is multi-line and
+# prefixed, and the signal lives inside a longer line — the evidence this unit
+# must capture whole rather than discard.
 _PERMANENT_STDERR = (
     "WARNING: [youtube] Falling back to generic n function search\n"
     "ERROR: [youtube] dQw4w9WgXcQ: Private video. Sign in if you've been "
@@ -39,6 +45,13 @@ _TRANSIENT_STDERR = (
     "WARNING: [youtube] Falling back to generic n function search\n"
     "ERROR: [youtube] dQw4w9WgXcQ: Unable to download webpage: HTTP Error 429: "
     "Too Many Requests\n"
+)
+# Real stderr in shape, carrying nothing any signal list claims — the drift case
+# stands in for a reworded upstream message nobody has seen yet.
+_UNRECOGNIZED_STDERR = (
+    "WARNING: [youtube] Falling back to generic n function search\n"
+    "ERROR: [youtube] dQw4w9WgXcQ: Unable to extract player response; please "
+    "report this issue on the yt-dlp issue tracker\n"
 )
 
 
@@ -88,10 +101,21 @@ def test_same_nonzero_code_with_rate_limit_stderr_is_transient(mod, monkeypatch)
 
 # --- Other failure modes ------------------------------------------------------
 
-def test_nonzero_exit_with_empty_stderr_is_permanent(mod, monkeypatch):
-    # No evidence at all — the delegated classifier's unknown rule decides.
+def test_nonzero_exit_with_empty_stderr_is_unknown(mod, monkeypatch):
+    # Nothing was offered to recognize, so nothing was recognized.
     monkeypatch.setattr(subprocess, "run", _fake_run(2, stdout="", stderr=""))
-    assert mod.fetch_metadata("anotherId00") == (None, "permanent")
+    assert mod.fetch_metadata("anotherId00") == (None, "unknown")
+
+
+def test_nonzero_exit_with_unrecognized_stderr_is_unknown_not_permanent(mod, monkeypatch):
+    # The drift case, and the scenario the v2.5 revision exists for: a reworded
+    # message matches no signal and must land in "unknown" rather than being
+    # relabelled "permanent" — the same return code as the two tests above,
+    # separated from both by stderr alone.
+    monkeypatch.setattr(
+        subprocess, "run", _fake_run(_SAME_NONZERO_CODE, stderr=_UNRECOGNIZED_STDERR)
+    )
+    assert mod.fetch_metadata("someVideoId") == (None, "unknown")
 
 
 def test_zero_exit_with_unparseable_stdout_is_permanent(mod, monkeypatch):
@@ -110,14 +134,17 @@ def test_zero_exit_with_empty_stdout_is_permanent_like_unparseable_stdout(mod, m
     assert mod.fetch_metadata("fl1DSmwQKKY") == (None, "permanent")
 
 
-def test_missing_ytdlp_executable_is_permanent_and_does_not_raise(mod, monkeypatch):
-    # Installing a missing tool is not something a retry achieves.
+def test_missing_ytdlp_executable_is_unknown_and_does_not_raise(mod, monkeypatch):
+    # A missing tool produces text nothing recognizes, so it is "unknown" — and
+    # usefully so. It is not retried either way (installing it is not something a
+    # retry achieves); what the verdict buys is that the caller now prints the
+    # text it did not recognize instead of throwing the message away.
     monkeypatch.setattr(
         subprocess,
         "run",
         _raising_run(FileNotFoundError(2, "No such file or directory: 'yt-dlp'")),
     )
-    assert mod.fetch_metadata("someVideoId") == (None, "permanent")
+    assert mod.fetch_metadata("someVideoId") == (None, "unknown")
 
 
 def test_expired_timeout_is_transient_and_does_not_raise(mod, monkeypatch):
@@ -136,6 +163,7 @@ def test_never_raises_on_any_failure_path(mod, monkeypatch):
     failing_runs = [
         _fake_run(_SAME_NONZERO_CODE, stderr=_PERMANENT_STDERR),
         _fake_run(_SAME_NONZERO_CODE, stderr=_TRANSIENT_STDERR),
+        _fake_run(_SAME_NONZERO_CODE, stderr=_UNRECOGNIZED_STDERR),
         _fake_run(2, stderr=""),
         _fake_run(0, stdout="}{ garbage"),
         _raising_run(FileNotFoundError(2, "No such file or directory: 'yt-dlp'")),
@@ -146,7 +174,7 @@ def test_never_raises_on_any_failure_path(mod, monkeypatch):
         monkeypatch.setattr(subprocess, "run", run)
         meta, failure = mod.fetch_metadata("someVideoId")
         assert meta is None
-        assert failure in ("transient", "permanent")
+        assert failure in ("transient", "permanent", "unknown")
 
 
 # --- Isolation ----------------------------------------------------------------

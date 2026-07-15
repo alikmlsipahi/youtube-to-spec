@@ -1,5 +1,5 @@
 """T-S1-15 — enumerate_playlist.
-Spec: docs/specs/A6-T-S1-15-enumerate_playlist.spec.md (v2.4)
+Spec: docs/specs/A6-T-S1-15-enumerate_playlist.spec.md (v2.5)
 
 Offline: the ``yt-dlp --flat-playlist --dump-single-json`` subprocess is mocked via the
 stdlib ``subprocess.run`` so no network is touched. Behavior is pinned on the mocked
@@ -7,15 +7,22 @@ return code / stdout / stderr only — never on the exact yt-dlp argument vector
 spec leaves to the implementer (§Assumptions).
 
 v2.3: the unit returns ``(playlist, failure)`` — a 2-tuple in which exactly one half is
-ever non-``None``, ``failure`` being ``None`` / ``"transient"`` / ``"permanent"``. The
-order-preservation, null-title and hidden-unavailable rules are unchanged by the re-sign.
+ever non-``None``. The order-preservation, null-title and hidden-unavailable rules are
+unchanged by the re-sign.
 
 v2.4: stdout that *parses* as JSON but is not an object is a failure like any other —
 ``(None, "permanent")``, never an exception. See the section banner below for why this is
 pinned separately from unparseable stdout.
 
+v2.5: ``failure`` is now ``None`` / ``"transient"`` / ``"permanent"`` / ``"unknown"``. The
+shape is untouched — the third verdict arrives here purely because classification is
+delegated, and ``classify_failure`` (T-S1-16) gained it. Only the *value* for an
+unrecognized failure moves: it used to be reported as ``"permanent"``, which claimed a
+conclusion nothing had established. What this unit must pass through unchanged is pinned
+below; what "unrecognized" *means* is T-S1-16's business, not this file's.
+
 Classification is *delegated* to ``classify_failure`` (T-S1-16), so this file uses one
-realistic representative stderr per class and does not enumerate signal lists, casing, or
+realistic representative stderr per verdict and does not enumerate signal lists, casing, or
 the "Sign in to confirm" prefix trap — those belong to T-S1-16's own tier. Likewise the
 hidden-unavailable parse rules belong to ``parse_hidden_unavailable`` (T-S1-10) and are not
 re-pinned here. Retry itself lives in the orchestration loop: this unit is a single
@@ -50,9 +57,8 @@ STDERR_NO_WARNING = (
     "WARNING: unrelated deprecation notice\n"
 )
 
-# One realistic representative stderr per failure class. Which fragments map to which
-# verdict is T-S1-16's contract, not this unit's — these are only "evidence captured and
-# passed on".
+# One realistic representative stderr per verdict. Which fragments map to which verdict is
+# T-S1-16's contract, not this unit's — these are only "evidence captured and passed on".
 STDERR_PRIVATE_PLAYLIST = (
     "[youtube:tab] Extracting URL: https://www.youtube.com/playlist?list=PLf2m1LSmwQKKY0examp\n"
     "[youtube:tab] PLf2m1LSmwQKKY0examp: Downloading webpage\n"
@@ -64,6 +70,16 @@ STDERR_RATE_LIMITED = (
     "[youtube:tab] Extracting URL: https://www.youtube.com/playlist?list=PLf2m1LSmwQKKY0examp\n"
     "ERROR: [youtube:tab] PLf2m1LSmwQKKY0examp: Unable to download API page: "
     "HTTP Error 429: Too Many Requests (caused by <HTTPError 429: Too Many Requests>)\n"
+)
+
+# Stderr that describes a real-looking failure in wording nothing has been taught to
+# recognize — a stand-in for the day YouTube or yt-dlp rewords a message we match on.
+# Deliberately carries no fragment from either signal list.
+STDERR_UNRECOGNIZED = (
+    "[youtube:tab] Extracting URL: https://www.youtube.com/playlist?list=PLf2m1LSmwQKKY0examp\n"
+    "[youtube:tab] PLf2m1LSmwQKKY0examp: Downloading webpage\n"
+    "ERROR: [youtube:tab] PLf2m1LSmwQKKY0examp: The feed could not be assembled "
+    "(reason code 8171). Please report this issue on the yt-dlp tracker\n"
 )
 
 
@@ -117,6 +133,9 @@ MIXED_ENTRIES = [
 
 
 # --- failure paths: the same return code, classified on stderr alone ----------------
+#
+# One non-zero exit, four stderr texts, three verdicts. The code carries no information;
+# every distinction below comes from what stderr offered the classifier to recognize.
 
 
 def test_nonzero_exit_with_private_playlist_stderr_is_permanent(mod, monkeypatch):
@@ -141,13 +160,31 @@ def test_same_nonzero_exit_with_rate_limit_stderr_is_transient_not_permanent(mod
 
 
 @pytest.mark.parametrize("returncode", [1, 2])
-def test_nonzero_exit_with_empty_stderr_is_permanent(mod, monkeypatch, returncode):
-    """No evidence at all → the classifier's unknown rule, for any non-zero code."""
+def test_nonzero_exit_with_empty_stderr_is_unknown(mod, monkeypatch, returncode):
+    """Nothing was offered to recognize, so nothing was recognized — for any non-zero code."""
     monkeypatch.setattr(subprocess, "run", _fake_run(returncode, stdout="", stderr=""))
-    assert mod.enumerate_playlist(PLAYLIST_URL) == (None, "permanent")
+    assert mod.enumerate_playlist(PLAYLIST_URL) == (None, "unknown")
+
+
+def test_nonzero_exit_with_unrecognized_stderr_is_unknown_not_permanent(mod, monkeypatch):
+    """The drift case, and the reason the third verdict exists.
+
+    Same FAILING_RC as the private-playlist test above, and stderr that looks every bit as
+    much like a hard failure — but in wording nothing matches. The verdict is "unknown", not
+    "permanent": this call gates the entire run, and a failure nobody has characterized must
+    not be passed on as one we understand.
+    """
+    monkeypatch.setattr(
+        subprocess, "run", _fake_run(FAILING_RC, stdout="", stderr=STDERR_UNRECOGNIZED)
+    )
+    assert mod.enumerate_playlist(PLAYLIST_URL) == (None, "unknown")
 
 
 # --- failure paths: a clean exit that produced nothing usable ----------------------
+#
+# These never reach the classifier: the process said it succeeded, so there is no failure
+# text to classify. The spec decides them directly — a clean exit emitting garbage is not a
+# throttle — which is why "unknown" is not the answer here and these stay "permanent".
 
 
 def test_unparseable_stdout_is_permanent(mod, monkeypatch):
@@ -204,14 +241,20 @@ def test_parseable_but_non_object_stdout_never_raises(mod, monkeypatch, stdout):
 # --- failure paths: the subprocess itself raised, and nothing escapes ---------------
 
 
-def test_missing_yt_dlp_executable_is_permanent(mod, monkeypatch):
-    """yt-dlp not installed → graceful verdict, not an exception. No retry installs it."""
+def test_missing_yt_dlp_executable_is_unknown(mod, monkeypatch):
+    """yt-dlp not installed → graceful verdict, not an exception.
+
+    No per-exception special-casing: the exception's name and text are handed to the
+    classifier like any other evidence, and nothing recognizes them, so the verdict is
+    "unknown". Retry behavior is unaffected — no retry installs a missing executable, and
+    "unknown" is not retried either.
+    """
 
     def _run(*args, **kwargs):
         raise FileNotFoundError(2, "No such file or directory: 'yt-dlp'")
 
     monkeypatch.setattr(subprocess, "run", _run)
-    assert mod.enumerate_playlist(PLAYLIST_URL) == (None, "permanent")
+    assert mod.enumerate_playlist(PLAYLIST_URL) == (None, "unknown")
 
 
 def test_timed_out_call_is_transient(mod, monkeypatch):
@@ -227,14 +270,18 @@ def test_timed_out_call_is_transient(mod, monkeypatch):
     assert mod.enumerate_playlist(PLAYLIST_URL, timeout=120.0) == (None, "transient")
 
 
-def test_other_subprocess_error_is_permanent(mod, monkeypatch):
-    """Any other subprocess error degrades to a verdict as well, never to an exception."""
+def test_other_subprocess_error_is_unknown(mod, monkeypatch):
+    """Any other subprocess error degrades to a verdict as well, never to an exception.
+
+    Its name and text match nothing either, so it lands where every uncharacterized failure
+    now lands.
+    """
 
     def _run(*args, **kwargs):
         raise subprocess.SubprocessError("subprocess blew up")
 
     monkeypatch.setattr(subprocess, "run", _run)
-    assert mod.enumerate_playlist(PLAYLIST_URL) == (None, "permanent")
+    assert mod.enumerate_playlist(PLAYLIST_URL) == (None, "unknown")
 
 
 # --- the timeout parameter is additive ---------------------------------------------

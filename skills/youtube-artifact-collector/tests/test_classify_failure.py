@@ -7,6 +7,12 @@ receives it — multi-line, prefixed yt-dlp stderr for the subprocess path and
 bare ``str(exc)`` prose for the transcript path — so every signal is matched as
 a substring inside a longer line rather than as a whole string.
 
+The verdict vocabulary is three values, not two: ``"permanent"`` means the unit
+recognized a failure that will never change, while ``"unknown"`` means it
+recognized nothing at all. Folding those two into one answer is the collapse
+this unit's revision exists to undo, so tests that pin a recognized signal and
+tests that pin an unrecognized one are kept visibly distinct below.
+
 Apostrophes are load-bearing here: the bot-check tests deliberately carry both
 the ASCII ``'`` (U+0027) and the typographic ``’`` (U+2019) that YouTube really
 sends, as pairs differing in exactly one codepoint. Do not "tidy" either form.
@@ -208,7 +214,8 @@ def test_bot_check_with_ascii_apostrophe_is_transient(mod):
 
 def test_bot_check_with_typographic_apostrophe_is_transient(mod):
     # U+2019 — the form YouTube actually sends. Unfolded, this misses the ASCII
-    # signal, falls through to the unknown rule, and is silently lost as permanent.
+    # signal and falls through to "unknown" — which is precisely the drift the
+    # unknown verdict exists to make visible instead of losing in silence.
     text = _ytdlp_stderr("Sign in to confirm you’re not a bot. Use --cookies-from-browser")
     assert "you’re not a bot" in text
     assert mod.classify_failure("", text) == "transient"
@@ -245,23 +252,61 @@ def test_the_fold_does_not_disturb_the_prefix_trap_for_the_age_gate(mod):
     assert mod.classify_failure("", age_gate) == "permanent"
 
 
-# --- Unknown failures ---------------------------------------------------------
+# --- Unrecognized failures: the "unknown" verdict ------------------------------
+#
+# Nothing in either signal list matched, so the unit reports that it recognized
+# nothing rather than guessing. This is not a retry decision — callers test
+# ``!= "transient"``, so an unknown failure is not retried, exactly as before —
+# it is an honest one: the caller may not record a conclusion the unit never
+# reached.
 
-def test_unrecognized_text_is_permanent(mod):
-    assert mod.classify_failure("", "ERROR: something nobody has ever seen") == "permanent"
-
-
-def test_empty_name_and_empty_text_is_permanent(mod):
-    assert mod.classify_failure("", "") == "permanent"
-
-
-def test_unrecognized_class_name_with_empty_text_is_permanent(mod):
-    assert mod.classify_failure("SomeUncharacterizedError", "") == "permanent"
+def test_unrecognized_text_is_unknown(mod):
+    assert mod.classify_failure("", "ERROR: something nobody has ever seen") == "unknown"
 
 
-def test_unrecognized_class_name_with_unrecognized_text_is_permanent(mod):
+def test_empty_name_and_empty_text_is_unknown(mod):
+    # Nothing was offered to recognize, so nothing was recognized.
+    assert mod.classify_failure("", "") == "unknown"
+
+
+def test_unrecognized_class_name_with_empty_text_is_unknown(mod):
+    # An unlisted class name is as unrecognized as unlisted text.
+    assert mod.classify_failure("SomeUncharacterizedError", "") == "unknown"
+
+
+def test_unrecognized_class_name_with_unrecognized_text_is_unknown(mod):
     text = _ytdlp_stderr("Unable to extract player response; please report this issue")
-    assert mod.classify_failure("CouldNotExtract", text) == "permanent"
+    assert mod.classify_failure("CouldNotExtract", text) == "unknown"
+
+
+def test_missing_ytdlp_executable_message_is_unknown(mod):
+    # Not a statement about the video at all — no signal in either list describes
+    # a missing binary, so the unit must not dress this up as an established fact.
+    text = "[Errno 2] No such file or directory: 'yt-dlp'"
+    assert mod.classify_failure("", text) == "unknown"
+
+
+# --- The permanent / unknown split: established vs merely unrecognized ---------
+#
+# The pair below is the distinction the unit used to collapse: under the old
+# contract both sides returned "permanent", making "this video will never yield
+# captions" and "I have never seen this message before" the same string. Only
+# the first of those licenses a caller to write the conclusion down.
+
+def test_a_recognized_permanent_signal_is_permanent_not_unknown(mod):
+    text = _ytdlp_stderr("Private video. Sign in if you've been granted access to this video")
+    assert mod.classify_failure("", text) == "permanent"
+
+
+def test_an_unrecognized_text_is_unknown_not_permanent(mod):
+    text = _ytdlp_stderr("Unable to extract player response; please report this issue")
+    assert mod.classify_failure("", text) == "unknown"
+
+
+def test_a_recognized_permanent_signal_and_an_unrecognized_text_are_different_answers(mod):
+    recognized = _ytdlp_stderr("Private video. Sign in if you've been granted access")
+    unrecognized = _ytdlp_stderr("Unable to extract player response; please report this issue")
+    assert mod.classify_failure("", recognized) != mod.classify_failure("", unrecognized)
 
 
 # --- Case-insensitive substring matching --------------------------------------
@@ -335,7 +380,7 @@ def test_same_inputs_always_yield_the_same_answer(mod):
     assert first == second == "transient"
 
 
-def test_return_value_is_only_ever_one_of_the_two_verdict_strings(mod):
+def test_return_value_is_only_ever_one_of_the_three_verdict_strings(mod):
     samples = [
         ("", ""),
         ("", _ytdlp_stderr("Video unavailable")),
@@ -349,4 +394,4 @@ def test_return_value_is_only_ever_one_of_the_two_verdict_strings(mod):
         ("TotallyUnknownError", "ERROR: something nobody has ever seen"),
     ]
     for name, text in samples:
-        assert mod.classify_failure(name, text) in ("transient", "permanent")
+        assert mod.classify_failure(name, text) in ("transient", "permanent", "unknown")
