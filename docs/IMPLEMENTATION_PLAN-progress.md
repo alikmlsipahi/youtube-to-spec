@@ -21,7 +21,7 @@
 - [green] T-S1-09 — build_manifest
 - [green] T-S1-10 — parse_hidden_unavailable
 - [green] T-S1-11 — graceful degradation (fetch_metadata)
-- [code-written] T-S1-12 — request_delay (jittered inter-request sleep)
+- [green] T-S1-12 — request_delay (jittered inter-request sleep) — verified: test_request_delay.py 10/10, full skill-1 suite 132/132, no regressions
 
 ## Skill 2 — `feature-requirement-extractor` (unit / blind-TDD)
 
