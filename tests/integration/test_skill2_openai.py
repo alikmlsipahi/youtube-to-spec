@@ -12,7 +12,7 @@ import os
 
 import pytest
 
-from conftest import SKILL2_DIR, SKILL2_SCRIPT
+from conftest import SKILL2_SCRIPT
 
 
 def _load_skill2():
