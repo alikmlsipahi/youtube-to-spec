@@ -37,6 +37,8 @@ The pipeline doesn't care about domain — swap the prompt files in `skills/spec
 - Saves a lossless `.json` artifact and a readable `.md` file per video, named after the video's
   title — playlist members keep their position (`01-tek-tek-ogrenci-yukleme.json`)
 - For playlists: produces a `_manifest.json` with the full member list — missing or private videos are listed, never silently skipped
+- Long runs stay polite: `--skip-existing` resumes without re-fetching, and `--sleep-requests` paces
+  requests with **randomized** delays rather than a fixed interval
 
 **Skill 2 — `spec-distiller`**
 - Reads a Skill 1 artifact and produces a requirements document
@@ -59,7 +61,12 @@ uv run skills/youtube-artifact-collector/scripts/extract_artifacts.py \
 
 # Whole playlist
 uv run skills/youtube-artifact-collector/scripts/extract_artifacts.py \
-  "https://www.youtube.com/playlist?list=PL..." --playlist
+  "https://www.youtube.com/playlist?list=PLk-DU0q6QMPP7RfYiyhiJY7qQOXoaFKHL"
+
+# A long playlist, politely: pace the requests and resume where you left off
+uv run skills/youtube-artifact-collector/scripts/extract_artifacts.py \
+  "https://www.youtube.com/playlist?list=PLk-DU0q6QMPP7RfYiyhiJY7qQOXoaFKHL" \
+  --sleep-requests 2 --skip-existing
 ```
 
 Output lands in `data/`, named after each video's title:
@@ -88,7 +95,51 @@ Claude reads the artifact and the prompt files and produces the requirements doc
 ```bash
 uv run skills/spec-distiller/scripts/extract_requirements.py \
   data/_singles/what-is-claude-code.json --engine openai --print
+
+# A whole collection: point at the folder, and it walks the manifest
+uv run skills/spec-distiller/scripts/extract_requirements.py \
+  data/edesis-kayit-modulu-rehberi-PLk-DU0q6QMPP7RfYiyhiJY7qQOXoaFKHL/ \
+  --engine openai --concurrency 4
 ```
+
+---
+
+## Options
+
+**Skill 1 — `extract_artifacts.py <url_or_id>… [flags]`**
+
+| Flag | Default | What it does |
+|---|---|---|
+| `--playlist` | off | Treat a `watch?v=…&list=…` URL as the whole playlist. A bare `playlist?list=…` URL is already a playlist without this. |
+| `--langs tr,en` | `tr,en` | Transcript language preference, in order. A **manual** track wins over an auto one in the same language; falls back to the first available track. |
+| `--metadata-only` | off | Skip transcripts, collect metadata only. Halves the network calls. |
+| `--skip-existing` | off | Skip videos whose `.json` is already on disk — resume a long run without re-fetching. Costs no network at all. |
+| `--sleep-requests N` | off | Wait between requests to stay rate-limit friendly. The delay is **jittered** — a random `[N, 2×N)` seconds rather than a fixed `N`, so the traffic doesn't read as an obvious bot pattern. It's paid before *every* request including ones that fail, so repeated failures can't hot-loop. |
+| `--format json\|md\|both` | `both` | Which per-video files to write. |
+| `--root DIR` | `data` | Output root. |
+| `--out-dir NAME` | derived | Override the collection folder name. |
+| `--no-save` / `--print` | off | Print to stdout instead of writing files. |
+
+> `--skip-existing` needs the `.json`: video ids live there, and a rendered `.md` carries none. So a
+> collection written with `--format md` can't be resumed and will be re-fetched.
+
+**Skill 2 — `extract_requirements.py <artifact.json | collection_dir/> [flags]`**
+
+| Flag | Env | Default | What it does |
+|---|---|---|---|
+| `--engine claude\|openai` | — | `claude` | `claude` reads the files in-chat, no API key. `openai` calls the API. |
+| `--model NAME` | `OPENAI_MODEL` | `gpt-4o-mini` | OpenAI model. |
+| `--temperature T` | `OPENAI_TEMPERATURE` | `0.2` | Creativity vs. consistency. |
+| `--max-tokens N` | `OPENAI_MAX_TOKENS` | `4096` | Max completion tokens. |
+| `--response-format json_schema\|text` | `OPENAI_RESPONSE_FORMAT` | `json_schema` | Structured-output mode. |
+| `--timeout S` | `OPENAI_TIMEOUT` | `60` | Request timeout. |
+| `--retries N` | `OPENAI_RETRIES` | `3` | Retry attempts. |
+| `--concurrency N` | `OPENAI_CONCURRENCY` | `4` | Parallel requests across a collection's members. |
+| `--out-dir NAME` | — | alongside source | Where to write the outputs. |
+| `--no-save` / `--print` | — | off | Print instead of writing files. |
+
+Outputs are named after the **source artifact**, not the video id — `01-tek-tek-ogrenci-yukleme.json`
+→ `01-tek-tek-ogrenci-yukleme.requirements.{md,json}`. Skill 1 owns naming; Skill 2 mirrors it.
 
 ---
 
@@ -145,14 +196,18 @@ flowchart LR
 ## Testing
 
 ```bash
-# Offline unit tests — no network, no API key
-uv run --with pytest pytest skills/youtube-artifact-collector/tests/
-uv run --with pytest pytest skills/spec-distiller/tests/
+# Offline unit tests — no network, no API key. Run each skill separately.
+uv run --with pytest pytest skills/youtube-artifact-collector/tests/   # 231 tests
+uv run --with pytest pytest skills/spec-distiller/tests/               # 149 tests
 
-# Integration tests (real network + OpenAI key required)
+# Integration tests — real YouTube + real OpenAI. Skipped unless opted in.
 RUN_INTEGRATION=1 uv run --with pytest --with openai --with python-dotenv \
   pytest tests/integration -m integration
 ```
+
+The integration tier hits a real video, a real playlist, and the real OpenAI API, so each test
+self-skips when its resource is missing — no network, no `OPENAI_API_KEY` — and never fails for
+lack of one. A skip is reported as a skip, never as a pass.
 
 ---
 
