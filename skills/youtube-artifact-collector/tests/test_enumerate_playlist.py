@@ -1,5 +1,5 @@
 """T-S1-15 — enumerate_playlist.
-Spec: docs/specs/A6-T-S1-15-enumerate_playlist.spec.md (v2.3 — RE-SIGNED)
+Spec: docs/specs/A6-T-S1-15-enumerate_playlist.spec.md (v2.4)
 
 Offline: the ``yt-dlp --flat-playlist --dump-single-json`` subprocess is mocked via the
 stdlib ``subprocess.run`` so no network is touched. Behavior is pinned on the mocked
@@ -9,6 +9,10 @@ spec leaves to the implementer (§Assumptions).
 v2.3: the unit returns ``(playlist, failure)`` — a 2-tuple in which exactly one half is
 ever non-``None``, ``failure`` being ``None`` / ``"transient"`` / ``"permanent"``. The
 order-preservation, null-title and hidden-unavailable rules are unchanged by the re-sign.
+
+v2.4: stdout that *parses* as JSON but is not an object is a failure like any other —
+``(None, "permanent")``, never an exception. See the section banner below for why this is
+pinned separately from unparseable stdout.
 
 Classification is *delegated* to ``classify_failure`` (T-S1-16), so this file uses one
 realistic representative stderr per class and does not enumerate signal lists, casing, or
@@ -156,6 +160,45 @@ def test_empty_stdout_is_permanent(mod, monkeypatch):
     """A clean exit emitting nothing is not a throttle."""
     monkeypatch.setattr(subprocess, "run", _fake_run(0, stdout="", stderr=""))
     assert mod.enumerate_playlist(PLAYLIST_URL) == (None, "permanent")
+
+
+# --- failure paths: a clean exit whose stdout PARSES but is not a playlist document ---
+#
+# Distinct from the unparseable case above, and the distinction is the whole point: there,
+# json.loads raises and the parse guard catches it. Here json.loads *succeeds* — so a guard
+# asking "did it parse" waves the value through, and the next read of it is what blows up.
+# A playlist document is a mapping; a list / null / bare scalar cannot be read as one, so
+# the guard has to ask "is this a dict".
+
+NON_OBJECT_STDOUTS = [
+    pytest.param("[1,2,3]", id="json-array"),
+    pytest.param("null", id="json-null"),
+    pytest.param('"a bare string"', id="bare-string"),
+    pytest.param("42", id="bare-number"),
+]
+
+
+@pytest.mark.parametrize("stdout", NON_OBJECT_STDOUTS)
+def test_parseable_but_non_object_stdout_is_permanent(mod, monkeypatch, stdout):
+    """Parsing succeeding is not the same as the document being usable."""
+    monkeypatch.setattr(subprocess, "run", _fake_run(0, stdout=stdout, stderr=""))
+    assert mod.enumerate_playlist(PLAYLIST_URL) == (None, "permanent")
+
+
+@pytest.mark.parametrize("stdout", NON_OBJECT_STDOUTS)
+def test_parseable_but_non_object_stdout_never_raises(mod, monkeypatch, stdout):
+    """The "never raises" half of the contract, asserted on its own.
+
+    A test that only compared the return value would still pass if the function raised some
+    *other* way, and raising is exactly what this path historically did — so failure has to
+    be signalled by the return value here, as on every other failure path.
+    """
+    monkeypatch.setattr(subprocess, "run", _fake_run(0, stdout=stdout, stderr=""))
+
+    try:
+        mod.enumerate_playlist(PLAYLIST_URL)
+    except Exception as exc:  # noqa: BLE001 — any escaping exception breaks the contract
+        pytest.fail(f"enumerate_playlist raised {type(exc).__name__} instead of returning: {exc}")
 
 
 # --- failure paths: the subprocess itself raised, and nothing escapes ---------------

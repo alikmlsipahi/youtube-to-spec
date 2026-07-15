@@ -99,6 +99,12 @@ Returns a 2-tuple `(playlist, failure)`. Exactly one half is ever non-`None`. **
     an expired timeout yields text carrying a timeout signal → `"transient"` (also correct).
   - **Return code `0` but unparseable/empty stdout** → `(None, "permanent")`. A clean exit emitting
     garbage is not a throttle. [ASSUMPTION]
+  - **Return code `0`, stdout parses, but the result is not a JSON object** (a list, `null`, a bare
+    string or number) → `(None, "permanent")`. **[v2.4]** Parsing succeeding is not the same as the
+    document being usable: a playlist document is a mapping, and anything else cannot be read as one.
+    This case is called out separately from "unparseable" because it is the one that used to escape —
+    `json.loads` succeeds, so the parse guard lets it through, and the *next* read is what fails. The
+    guard has to be "is this a dict", not "did it parse".
 - **stderr is doing two jobs now.** It was already the sole source of `hidden_unavailable_count`; as of
   v2.3 it is *also* the sole evidence for classification. Anything that suppresses it (`--no-warnings`)
   breaks both. **[v2.3]**
@@ -114,6 +120,10 @@ Returns a 2-tuple `(playlist, failure)`. Exactly one half is ever non-`None`. **
 - **Return code 0 but unparseable or empty stdout:** treated as a failure → returns
   `(None, "permanent")`. A successful exit with garbage output must not propagate a parse exception to
   the caller. [ASSUMPTION] — this mirrors T-S1-11's identical defensive rule.
+- **Return code 0, stdout parses, but is not a JSON object** (`[1,2,3]`, `null`, `"text"`, `42`):
+  treated as a failure → returns `(None, "permanent")`. **The function must not raise here** — this is
+  the same "never raises" guarantee as every other failure path, and it is the path that historically
+  broke it. **[v2.4]**
 - **yt-dlp executable missing (`FileNotFoundError`) or other subprocess error:** treated as a failure →
   returns `(None, "permanent")`, not an exception. [ASSUMPTION] — again mirroring T-S1-11.
 - **Timeout expires:** returns `(None, "transient")`, not an exception. **[v2.3]**
@@ -159,6 +169,10 @@ process result with a chosen return code, stdout, and stderr, so no network is t
 - **Given** `subprocess.run` is mocked to return return code `0` with stdout that is **not** parseable
   JSON, **when** `enumerate_playlist` runs, **then** it returns `(None, "permanent")` rather than
   raising.
+- **Given** `subprocess.run` is mocked to return return code `0` with stdout that **parses cleanly but
+  is not an object** — a JSON array, `null`, a bare string, a bare number — **when**
+  `enumerate_playlist` runs, **then** it returns `(None, "permanent")` rather than raising, for each
+  of those shapes. **[v2.4]**
 
 ## Assumptions
 
@@ -251,14 +265,15 @@ The undecided ones are logged in `to-do.md`.
 - [NEEDS CLARIFICATION] **A non-playlist URL reaching this function** (e.g. yt-dlp returns a single-video
   document with no `entries`). `classify_input` (T-S1-03) is specified to prevent this, so no real caller
   reaches it; the behavior is undefined and deliberately untested.
-- [KNOWN DEFECT 2026-07-15] **Return code 0 with valid JSON that is not an object → the function
-  raises**, violating its own "never raises" contract and killing the run. `json.loads` succeeds on
-  `[1,2,3]` or `null`, and the subsequent read of `entries` sits *outside* the try, so an
-  `AttributeError` escapes. Measured, not inferred: a mocked `subprocess.run` returning
-  `stdout='[1,2,3]'` raises `AttributeError: 'list' object has no attribute 'get'`; `'null'` the same.
-  The sibling `fetch_metadata` is unaffected — it never assumes a dict. Not fixed with v2.3 (out of
-  that change's scope); tracked in `to-do.md` §Skill 1 — bilinen açıklar, item 1. The fix belongs here
-  as an edge case (`isinstance(data, dict)` → `(None, "permanent")`) once taken.
+- [RESOLVED 2026-07-15] **Return code 0 with valid JSON that is not an object used to raise**,
+  violating this unit's own "never raises" contract and killing the run. `json.loads` succeeds on
+  `[1,2,3]` or `null`, so the parse guard let it through, and the *next* read — outside the try — threw
+  `AttributeError`. Measured before the fix, not inferred: mocked `stdout='[1,2,3]'` raised
+  `AttributeError: 'list' object has no attribute 'get'`; `'null'` the same. The sibling
+  `fetch_metadata` was never affected — it assumes nothing about the parsed shape. Now specified above
+  as an edge case and an acceptance scenario, fixed in v2.4, and pinned by tests. The lesson worth
+  keeping: **"it parsed" is not "it is usable"**, and a guard written as `try: json.loads` answers only
+  the first question.
 - [RESOLVED 2026-07-15] **Whether the rate-limit machinery applies to this enumeration call — it
   does.** The question was previously open because the risk section frames the delay as covering
   "~24 sequential **per-video** calls", which reads as the per-video loop, leaving the single up-front

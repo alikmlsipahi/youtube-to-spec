@@ -15,6 +15,8 @@ Split in three so each half stays verifiable independently of the others:
 - **the invariant** is checkable from *either* network, which is the point of
   having it: whatever the network does, a JSON on disk means a complete
   artifact.
+- **the permanent-failure gate** is deterministic on any network: a bogus video
+  id fails everywhere, so it needs no fixture and no caption luck.
 """
 
 import json
@@ -27,11 +29,21 @@ from conftest import SKILL1_SCRIPT
 
 VIDEO_ID = "fl1DSmwQKKY"  # "What is Claude Code?" by Claude — public video with auto captions
 
+# Syntactically a video id (11 chars), but no such video exists — so metadata
+# fetch fails permanently, from any network, without a fixture to keep alive.
+# Stands in for the private/deleted videos this path really serves.
+BOGUS_VIDEO_ID = "zzzzzzzzzzz"
+
 
 def _run(tmp_path, *extra) -> subprocess.CompletedProcess:
     """Run Skill 1 on VIDEO_ID into tmp_path; return the completed process."""
+    return _run_video(tmp_path, VIDEO_ID, *extra)
+
+
+def _run_video(tmp_path, video_id, *extra) -> subprocess.CompletedProcess:
+    """Run Skill 1 on an arbitrary video id into tmp_path."""
     return subprocess.run(
-        ["uv", "run", str(SKILL1_SCRIPT), VIDEO_ID, "--root", str(tmp_path), *extra],
+        ["uv", "run", str(SKILL1_SCRIPT), video_id, "--root", str(tmp_path), *extra],
         capture_output=True,
         text=True,
         timeout=600,
@@ -147,3 +159,52 @@ def test_skill1_never_writes_a_transiently_blocked_transcript(require_network, t
             f"{path.name} was written with caption tracks on offer but no transcript — "
             "a failed fetch recorded as a complete artifact"
         )
+
+
+@pytest.mark.integration
+def test_skill1_single_permanent_failure_is_not_silent(require_network, tmp_path):
+    """A run that collects nothing because the video is gone must say so, and fail.
+
+    A single permanently-unavailable video (private, deleted, bogus id) exits 0,
+    writes no file, and prints nothing: the run claims success while collecting
+    nothing and explaining nothing. Anything driving the script from outside — a
+    CI job, a shell loop — reads that exit 0 as "done".
+
+    The rate-limited sibling already warns and exits 1 when nothing was collected,
+    so today the two failure kinds behave inconsistently. This pins the permanent
+    one to the same contract. Partial success is *not* covered here and is
+    unchanged: a playlist that lands some members still exits 0 and lists its
+    failures in the manifest (see test_skill1_playlist.py).
+
+    Unlike the rest of this file, this gate is deterministic: a bogus id fails on
+    any network, blocked or not, so it never rides on caption availability.
+    """
+    result = _run_video(tmp_path, BOGUS_VIDEO_ID)
+
+    # A rate limit would also exit non-zero and also print — it would satisfy every
+    # assertion below without the permanent path ever running. That is an
+    # environmental confound, not evidence, so refuse to pass on it.
+    if _was_rate_limited(result):
+        pytest.skip(
+            "the run was rate-limited before it could resolve the video as "
+            "permanently unavailable; the permanent-failure path did not execute"
+        )
+
+    assert result.returncode != 0, (
+        "collecting a permanently-unavailable video exited 0 — a caller sees "
+        "success for a run that collected nothing"
+    )
+    assert result.stderr.strip(), (
+        "nothing was collected and nothing was said about why — the failure has "
+        "no manifest to land in either, so stderr is the only report there is"
+    )
+    assert BOGUS_VIDEO_ID in result.stderr, (
+        "stderr does not name the video that failed; with no artifact and no "
+        "manifest, the id is the only thing identifying it"
+    )
+
+    # Nothing anywhere under the root — not the artifact, not a stub, not a manifest.
+    assert not [p for p in tmp_path.rglob("*") if p.is_file()], (
+        "a video that could not be fetched left files behind: "
+        f"{[str(p.relative_to(tmp_path)) for p in tmp_path.rglob('*') if p.is_file()]}"
+    )
