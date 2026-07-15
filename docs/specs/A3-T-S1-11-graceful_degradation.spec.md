@@ -6,94 +6,158 @@
 > per-video isolation"; catalog row T-S1-11; capability "Graceful degradation"; §Reuse "`except Exception
 > → stderr → sys.exit(1)` convention" — but per-video failures here must **not** exit). **No test code,
 > no golden output tables here.**
+>
+> **[v2.3 — RE-SIGNED]** This unit's return type changed from `dict | None` to
+> `tuple[dict | None, str | None]`, and it gained a `timeout` parameter. The old contract is not being
+> *fixed around*; it is the thing being fixed. See "Why this unit was re-signed" below. Precedent for
+> re-signing a green unit rather than working around it: `artifact_basename` in v2.1
+> (`docs/IMPLEMENTATION_PLAN-progress.md:67`).
+
+## Why this unit was re-signed
+
+The previous contract was *"any failure → `None`"*. That single sentinel is information-destroying:
+it renders "this video is private" and "YouTube just rate-limited us" **the same value**, at the only
+boundary where the difference is still knowable (the subprocess's stderr, which the old
+implementation captured and then discarded).
+
+Everything downstream inherits that loss. A caller holding `None` cannot decide whether to retry,
+because it cannot tell a permanent failure from a transient one — so it either retries everything
+(burning minutes of backoff on videos that will never exist, adding traffic during the exact incident
+retry exists to survive) or retries nothing (today's behavior). Retry is not implementable on top of
+this contract. Hence the re-sign: the failure's *kind* must survive the return.
 
 ## One-line purpose
 
-Fetch one video's metadata by shelling out to yt-dlp, returning the parsed metadata dict on success and
-**`None` on any failure** (non-zero exit, missing tool, unparseable output) — so a single bad video
-degrades gracefully and the surrounding batch run continues instead of aborting.
+Fetch one video's metadata by shelling out to yt-dlp, returning the parsed metadata dict on success
+and, on any failure, **`None` plus a classification of that failure** (`"transient"` or
+`"permanent"`) — so a single bad video degrades gracefully and the surrounding batch continues, and
+so the caller can tell a failure worth retrying from one that never will be.
 
 ## Signature
 
 ```python
-def fetch_metadata(video_id: str) -> dict | None
+def fetch_metadata(video_id: str, *, timeout: float | None = None) -> tuple[dict | None, str | None]
 ```
 
 Performs a subprocess call (`subprocess.run`) to yt-dlp; it does **not** use the Python yt-dlp API
 (subprocess is chosen for stable JSON output and per-video isolation). It is **not** pure — but it is
-deterministic given a mocked subprocess, and the unit tier mocks the subprocess so no network is touched.
+deterministic given a mocked subprocess, and the unit tier mocks the subprocess so no network is
+touched.
 
 ## Inputs
 
 - `video_id: str` — an 11-char YouTube video id (already extracted upstream via `extract_video_id`).
+- `timeout: float | None` — keyword-only. Seconds to allow the subprocess before killing it; `None`
+  means no limit. CLI `--timeout`, default `120.0`. The call was previously **unbounded**: a yt-dlp
+  process that hangs would hang the entire run forever, with no flag to escape it.
 
-The function invokes, conceptually, `yt-dlp --skip-download --dump-json <video_id>` via `subprocess.run`,
-capturing stdout (the per-video JSON) and stderr, and inspecting the process return code.
+The function invokes, conceptually, `yt-dlp --skip-download --dump-json <video_id>` via
+`subprocess.run`, capturing stdout (the per-video JSON) and stderr, and inspecting the return code.
 
 ## Expected behavior
 
-- **Success path:** when the subprocess exits with **return code `0`**, parse its captured **stdout** as
-  JSON and return the resulting `dict`.
-- **Failure path (graceful):** when the subprocess exits with a **non-zero** return code, return
-  **`None`** — do **not** raise, and do **not** call `sys.exit`. (The caller records the video as
-  `metadata_failed` with a reason and continues the batch — that recording is the orchestration loop's
-  job; this unit's contract is "non-zero exit → `None`".)
-- The function never lets a single video's failure crash the run; the per-video try/except isolation that
-  the plan's risk section calls for resolves, at this unit's boundary, to "return `None` on failure".
+Returns a 2-tuple `(meta, failure)`. Exactly one of the two is ever non-`None`:
+
+- **Success:** return code `0` **and** stdout parses as JSON → `(parsed_dict, None)`.
+- **Failure:** → `(None, kind)` where `kind` is `"transient"` or `"permanent"`, obtained by handing
+  the failure to `classify_failure` (T-S1-16). **This unit does not classify anything itself** — it
+  captures the evidence and delegates the judgement, so the signal lists live in exactly one place.
+
+How the evidence is gathered per failure mode:
+
+- **Non-zero return code** → `classify_failure("", stderr)`. There is no exception object, so the
+  name is empty and stderr carries the whole story (this is why stderr must be captured and must not
+  be suppressed).
+- **Subprocess raised** (tool missing, timeout expired, OS error) → `classify_failure(type(exc).__name__, str(exc))`.
+  Note this needs no special-casing per exception type, and that is the point of routing it through
+  the classifier: a yt-dlp that is not installed produces text the classifier does not recognize and
+  therefore calls `"permanent"` (correct — installing it is not something a retry achieves), while an
+  expired timeout produces text containing a timeout signal and is called `"transient"` (also
+  correct — the next attempt may well succeed).
+- **Return code `0` but unparseable/empty stdout** → `(None, "permanent")`. A clean exit that emits
+  garbage is not a throttle, and re-running it is not expected to produce different bytes. [ASSUMPTION]
+
+Unchanged from the original contract, and still load-bearing:
+
+- The function **never raises** on any failure path and **never** calls `sys.exit`. Failure is always
+  signalled by the return value. A single video's failure must not crash the run.
+- The per-video try/except isolation the plan's risk section calls for resolves, at this unit's
+  boundary, to "failure → `(None, kind)`".
 
 ## Edge cases
 
-- **Non-zero exit (e.g. private/deleted/unavailable video):** returns `None`.
-- **Return code 0 with valid JSON stdout:** returns the parsed dict (the metadata yt-dlp emitted).
-- **Return code 0 but unparseable/empty stdout:** treated as a failure → returns `None` (defensive; a
-  successful exit with garbage output should not propagate a parse exception). [ASSUMPTION]
-- **yt-dlp executable missing (`FileNotFoundError`) or other subprocess error:** treated as a failure →
-  returns `None`, not an exception. [ASSUMPTION]
-- The function must **never** raise on the failure paths above; failure is always signalled by the `None`
-  return value.
+- **Non-zero exit, stderr says the video is private/deleted/unavailable** → `(None, "permanent")`.
+- **Non-zero exit, stderr carries a rate-limit or bot-check signal** → `(None, "transient")`. This is
+  the case the whole re-sign exists to make expressible; under the old contract it was indistinguishable
+  from the line above.
+- **Non-zero exit, stderr empty** → `(None, "permanent")` — the classifier's unknown rule applies.
+- **Return code 0 with valid JSON stdout** → `(parsed_dict, None)`.
+- **Return code 0 but unparseable/empty stdout** → `(None, "permanent")`. [ASSUMPTION]
+- **yt-dlp executable missing (`FileNotFoundError`)** → `(None, "permanent")`, not an exception.
+- **Timeout expires** → `(None, "transient")`, not an exception.
+- **`timeout=None`** → no time limit is imposed (the pre-v2.3 behavior remains reachable).
+- The function must **never** raise on any of the above.
 
 ## Acceptance scenarios (Given / When / Then)
 
-- **Given** `subprocess.run` is mocked to return a process result with a **non-zero** return code, **when**
-  `fetch_metadata("someVideoId")` runs, **then** it returns `None` and does not raise.
+- **Given** `subprocess.run` is mocked to return a **non-zero** return code with stderr describing a
+  private video, **when** `fetch_metadata("someVideoId")` runs, **then** it returns `(None, "permanent")`
+  and does not raise.
+- **Given** `subprocess.run` is mocked to return a **non-zero** return code with stderr carrying a
+  rate-limit signal, **when** it runs, **then** it returns `(None, "transient")` — the same return
+  code as the previous scenario, classified oppositely, on stderr alone.
 - **Given** `subprocess.run` is mocked to return return code `0` with stdout being a valid JSON object,
-  **when** `fetch_metadata` runs, **then** it returns that object as a `dict`.
-- **Given** two videos processed in sequence where the first's subprocess fails (returns `None`), **when**
-  the batch continues, **then** the failure is isolated to that video — the second still proceeds (the
-  unit guarantees the `None` signal that makes this continuation possible).
+  **when** it runs, **then** it returns that object as a `dict` paired with `None`.
+- **Given** `subprocess.run` is mocked to return return code `0` with stdout that is not valid JSON,
+  **when** it runs, **then** it returns `(None, "permanent")` and does not raise.
+- **Given** `subprocess.run` is mocked to raise as though the yt-dlp executable were missing, **when**
+  it runs, **then** it returns `(None, "permanent")` and does not raise.
+- **Given** `subprocess.run` is mocked to raise as though the call had timed out, **when** it runs,
+  **then** it returns `(None, "transient")` and does not raise.
+- **Given** two videos processed in sequence where the first's subprocess fails, **when** the batch
+  continues, **then** the failure is isolated to that video — the second still proceeds.
 
 ## Assumptions
 
-- [ASSUMPTION] The function calls `subprocess.run(...)` (so it is patchable at `subprocess.run`), captures
-  output as text, and reads `.returncode` and `.stdout`. The plan specifies "subprocess … `--dump-json`"
-  but not the exact call form; the reuse source (`get_transcript.py`) establishes the subprocess + JSON
-  convention.
-- [ASSUMPTION] Success is defined as `returncode == 0` **and** stdout parses as JSON; any other outcome
-  yields `None`.
-- [ASSUMPTION] The "+ record" part of "on failure return `None` + record" is performed by the **caller**
-  (the batch loop builds the `metadata_failed` member record); `fetch_metadata` itself only returns
-  `None`. The unit test therefore pins the `None`/`dict` return contract, which is what makes the
-  caller's graceful recording possible.
-- [ASSUMPTION] No `sys.exit` is called on a per-video failure — the script-wide `except → sys.exit(1)`
-  convention applies to fatal top-level errors, not to a single video's metadata miss.
+- [ASSUMPTION] The function calls `subprocess.run(...)` (so it is patchable at `subprocess.run`),
+  captures output as text, and reads `.returncode`, `.stdout` and `.stderr`. The plan specifies
+  "subprocess … `--dump-json`" but not the exact call form.
+- [ASSUMPTION] Success is defined as `returncode == 0` **and** stdout parses as JSON; any other
+  outcome yields `(None, kind)`.
+- [ASSUMPTION] Classification is **delegated** to `classify_failure` (T-S1-16), never reimplemented
+  here. This unit's own contract is therefore "capture the right evidence and pass it on" — which
+  strings map to which verdict is T-S1-16's contract, not this one's. A test of this unit should not
+  need to know the signal lists.
+- [ASSUMPTION] The "+ record" part of "on failure return `None` + record" is still performed by the
+  **caller** (the batch loop builds the `metadata_failed` / `rate_limited` member record). This unit
+  only returns the tuple.
+- [ASSUMPTION] No `sys.exit` on a per-video failure — the script-wide `except → sys.exit(1)`
+  convention applies to fatal top-level errors, not a single video's metadata miss.
+- [ASSUMPTION] `timeout` is keyword-only and defaults to `None`, so the parameter is additive: an
+  existing positional call site keeps compiling and keeps its old (unbounded) behavior. Only the
+  return type is a breaking change.
 
 ## Key entities (canonical schema excerpt)
 
 ```jsonc
 // per-video artifact → extraction{}
 "extraction": { "metadata_ok","transcript_ok","warnings","tool_versions" }
-// _manifest.json member when this returns None:
-{ "status":"metadata_failed", "reason":"…", "files": null }
+
+// _manifest.json member, by this unit's return:
+{ "status":"metadata_failed", "reason":"…",                    "files": null }  // (None, "permanent")
+{ "status":"rate_limited",    "reason":"… rate-limited after N retries", "files": null }  // (None, "transient"), retries exhausted
 ```
 
-A `None` from `fetch_metadata` is what drives `metadata_ok: false` / a `metadata_failed` manifest member,
-keeping the failed video listed (with reason) rather than silently dropped.
+The `failure` half of the tuple is what lets the loop tell those two rows apart. `metadata_ok: false`
+follows from `meta is None` exactly as before; the failed video stays listed with a reason rather than
+being silently dropped.
 
 ## NEEDS CLARIFICATION
 
-- [NEEDS CLARIFICATION] Whether a return-code-0-but-empty-stdout case should be a failure (`None`) or a
-  surfaced error is unspecified; this spec treats it as `None` for safety. The two pinned unit cases are
-  the unambiguous ones (non-zero → `None`; zero + valid JSON → dict).
-- [NEEDS CLARIFICATION] The precise yt-dlp argument vector (flag order, extra flags like
-  `--no-warnings`/`--sleep-requests`) is an implementer detail and is **not** asserted by this unit; the
-  test pins behavior on the mocked return code and stdout, not on the exact command line.
+- [NEEDS CLARIFICATION] Whether a return-code-0-but-empty-stdout case should be `"permanent"` or
+  `"transient"`. This spec picks `"permanent"` on the reasoning that a clean exit is not a throttle,
+  but a truncated response from an overloaded upstream could in principle present this way.
+- [NEEDS CLARIFICATION] The precise yt-dlp argument vector (flag order, extra flags) remains an
+  implementer detail and is **not** asserted by this unit — with one constraint that *is* contractual
+  as of v2.3: stderr must be captured and must not be suppressed, since it is now the sole evidence
+  the classification is drawn from.

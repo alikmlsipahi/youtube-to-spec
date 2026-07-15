@@ -12,18 +12,28 @@
 > signature + docstring. Retrofitted coverage: the code predates this spec, which is authored from
 > documented policy + signature/docstring only — no function body was read.
 > **No test code, no golden output tables here.**
+>
+> **[v2.3 — RE-SIGNED]** This unit's return type changed from `dict | None` to
+> `tuple[dict | None, str | None]`, and it gained a `timeout` parameter — mirroring the identical
+> re-sign of its sibling `fetch_metadata` (T-S1-11), and for the identical reason: a bare `None`
+> cannot say *why*, so a caller cannot decide whether to retry. This call is now retried on transient
+> failures. It is also the **highest-stakes** call in the script to get this right: it is a single
+> up-front request that gates the entire run, so one 429 here kills a playlist collect before it
+> fetches anything, where the same 429 on a per-video call costs one video. The order-preservation,
+> null-title and hidden-unavailable rules below are **unchanged** by this re-sign.
 
 ## One-line purpose
 
 Enumerate a playlist's identity and its **ordered** members by shelling out to yt-dlp's flat listing,
 returning a dict carrying the playlist's `id`/`title`/`uploader`, the members in playlist order, and the
-count of unavailable members yt-dlp hid from the listing — or **`None`** on any failure, so an
-unreachable playlist degrades gracefully instead of aborting the run.
+count of unavailable members yt-dlp hid from the listing — or, on any failure, **`None` plus a
+classification of that failure** (`"transient"` or `"permanent"`), so an unreachable playlist degrades
+gracefully instead of aborting the run, and so a throttled one can be retried rather than written off.
 
 ## Signature
 
 ```python
-def enumerate_playlist(url: str) -> dict | None
+def enumerate_playlist(url: str, *, timeout: float | None = None) -> tuple[dict | None, str | None]
 ```
 
 This is the **first** of the two yt-dlp stages (plan §Grounding): `--flat-playlist` yields playlist
@@ -40,6 +50,9 @@ subprocess so no network is touched**. It reuses `parse_hidden_unavailable` (T-S
 - `url: str` — a playlist URL, already classified as a playlist by `classify_input` (T-S1-03). A
   `watch?v=…&list=…` URL only reaches this function when the run was invoked with `--playlist`; without
   that flag it is collected as a single video and this function is never called.
+- `timeout: float | None` — keyword-only. Seconds to allow the subprocess before killing it; `None`
+  means no limit. CLI `--timeout`, default `120.0`. The call was previously **unbounded**: a hung
+  yt-dlp would hang the whole run with no escape. **[v2.3]**
 
 The function invokes, conceptually, `yt-dlp --flat-playlist --dump-single-json <url>` via
 `subprocess.run`, capturing **stdout** (the single playlist JSON document), capturing **stderr** (which
@@ -47,8 +60,10 @@ carries the hidden-unavailable WARNING), and inspecting the process return code.
 
 ## Expected behavior
 
+Returns a 2-tuple `(playlist, failure)`. Exactly one half is ever non-`None`. **[v2.3]**
+
 - **Success path:** when the subprocess exits with **return code `0`**, parse its captured **stdout** as
-  a single JSON document and return a dict of the shape:
+  a single JSON document and return `(playlist, None)`, where `playlist` is a dict of the shape:
   - `id` — the playlist's id,
   - `title` — the playlist's title,
   - `uploader` — the playlist's uploader/channel,
@@ -70,21 +85,39 @@ carries the hidden-unavailable WARNING), and inspecting the process return code.
 - **Null titles are preserved, not repaired.** An entry's `title` is passed through exactly as yt-dlp
   reported it, including `None`. The video-id fallback for an untitled member is `artifact_basename`'s job
   (T-S1-13), not this function's; a coerced empty string here would defeat that fallback's own contract.
-- **Failure path (graceful):** when the subprocess exits with a **non-zero** return code, return **`None`**
-  — do **not** raise, and do **not** call `sys.exit`. This follows the convention T-S1-11 establishes for
-  `fetch_metadata`: the script-wide `except → stderr → sys.exit(1)` convention applies to fatal top-level
-  errors, not to a yt-dlp call that came back unhappy. Failure is always signalled by the `None` return.
+- **Failure path (graceful):** on any failure, return `(None, kind)` where `kind` is `"transient"` or
+  `"permanent"` — do **not** raise, and do **not** call `sys.exit`. This follows the convention T-S1-11
+  establishes for `fetch_metadata`: the script-wide `except → stderr → sys.exit(1)` convention applies
+  to fatal top-level errors, not to a yt-dlp call that came back unhappy. Failure is always signalled
+  by the return value, never by an exception. **[v2.3]**
+- **Classification is delegated**, never reimplemented here — exactly as in T-S1-11: **[v2.3]**
+  - **Non-zero return code** → `classify_failure("", stderr)` (T-S1-16). No exception object exists, so
+    the name is empty and stderr carries the evidence.
+  - **Subprocess raised** (tool missing, timeout expired, OS error) →
+    `classify_failure(type(exc).__name__, str(exc))`. No per-exception special-casing: a missing yt-dlp
+    yields text the classifier does not recognize → `"permanent"` (correct — no retry installs it);
+    an expired timeout yields text carrying a timeout signal → `"transient"` (also correct).
+  - **Return code `0` but unparseable/empty stdout** → `(None, "permanent")`. A clean exit emitting
+    garbage is not a throttle. [ASSUMPTION]
+- **stderr is doing two jobs now.** It was already the sole source of `hidden_unavailable_count`; as of
+  v2.3 it is *also* the sole evidence for classification. Anything that suppresses it (`--no-warnings`)
+  breaks both. **[v2.3]**
 
 ## Edge cases
 
-- **Return code 0 with a valid playlist JSON on stdout:** returns the dict described above.
-- **Non-zero exit** (playlist private, deleted, region-blocked, URL malformed, network down): returns
-  `None`.
-- **Return code 0 but unparseable or empty stdout:** treated as a failure → returns `None`. A successful
-  exit with garbage output must not propagate a parse exception to the caller. [ASSUMPTION] — this
-  mirrors T-S1-11's identical defensive rule.
+- **Return code 0 with a valid playlist JSON on stdout:** returns `(dict, None)` as described above.
+- **Non-zero exit, stderr says the playlist is private/deleted/region-blocked:** returns
+  `(None, "permanent")`.
+- **Non-zero exit, stderr carries a rate-limit or bot-check signal:** returns `(None, "transient")` —
+  the same return code as the line above, classified oppositely on stderr alone. **[v2.3]**
+- **Non-zero exit, stderr empty:** returns `(None, "permanent")` — the classifier's unknown rule.
+- **Return code 0 but unparseable or empty stdout:** treated as a failure → returns
+  `(None, "permanent")`. A successful exit with garbage output must not propagate a parse exception to
+  the caller. [ASSUMPTION] — this mirrors T-S1-11's identical defensive rule.
 - **yt-dlp executable missing (`FileNotFoundError`) or other subprocess error:** treated as a failure →
-  returns `None`, not an exception. [ASSUMPTION] — again mirroring T-S1-11.
+  returns `(None, "permanent")`, not an exception. [ASSUMPTION] — again mirroring T-S1-11.
+- **Timeout expires:** returns `(None, "transient")`, not an exception. **[v2.3]**
+- **`timeout=None`:** no time limit is imposed (the pre-v2.3 behavior remains reachable). **[v2.3]**
 - **stderr carries no hidden-unavailable WARNING:** `hidden_unavailable_count` is `0` — that is
   `parse_hidden_unavailable`'s contract for the absent/empty case, and this function does not second-guess
   it.
@@ -99,11 +132,19 @@ carries the hidden-unavailable WARNING), and inspecting the process return code.
 All scenarios are described at the **mocked-subprocess boundary**: `subprocess.run` is mocked to return a
 process result with a chosen return code, stdout, and stderr, so no network is touched.
 
-- **Given** `subprocess.run` is mocked to return a **non-zero** return code, **when** `enumerate_playlist`
-  runs on any URL, **then** it returns `None` and does not raise.
+- **Given** `subprocess.run` is mocked to return a **non-zero** return code with stderr describing a
+  private playlist, **when** `enumerate_playlist` runs on any URL, **then** it returns
+  `(None, "permanent")` and does not raise.
+- **Given** `subprocess.run` is mocked to return a **non-zero** return code with stderr carrying a
+  rate-limit signal, **when** it runs, **then** it returns `(None, "transient")` — same return code as
+  above, opposite classification.
+- **Given** `subprocess.run` is mocked to raise as though the call had timed out, **when** it runs,
+  **then** it returns `(None, "transient")` and does not raise.
+- **Given** `subprocess.run` is mocked to raise as though the yt-dlp executable were missing, **when**
+  it runs, **then** it returns `(None, "permanent")` and does not raise.
 - **Given** `subprocess.run` is mocked to return return code `0` with stdout being a valid flat-playlist
   JSON document, **when** `enumerate_playlist` runs, **then** it returns a dict carrying the playlist's
-  `id`, `title`, and `uploader` drawn from that document.
+  `id`, `title`, and `uploader` drawn from that document, paired with `None`.
 - **Given** the same mocked success, **when** `enumerate_playlist` runs, **then** `entries` contains one
   `{id, title}` record per member of the mocked document, in the **same order** the document listed them.
 - **Given** a mocked stdout whose entries include members with a **null title**, **when**
@@ -116,7 +157,8 @@ process result with a chosen return code, stdout, and stderr, so no network is t
 - **Given** a mocked stderr with **no** hidden-unavailable WARNING, **when** `enumerate_playlist` runs,
   **then** `hidden_unavailable_count` is `0`.
 - **Given** `subprocess.run` is mocked to return return code `0` with stdout that is **not** parseable
-  JSON, **when** `enumerate_playlist` runs, **then** it returns `None` rather than raising.
+  JSON, **when** `enumerate_playlist` runs, **then** it returns `(None, "permanent")` rather than
+  raising.
 
 ## Assumptions
 
@@ -125,7 +167,17 @@ process result with a chosen return code, stdout, and stderr, so no network is t
   (`--flat-playlist --dump-single-json`) but not the exact call form; T-S1-11 and the reuse source
   (`get_transcript.py`) establish the subprocess + JSON convention.
 - [ASSUMPTION] Success is defined as `returncode == 0` **and** stdout parses as JSON; any other outcome
-  yields `None`. This is T-S1-11's rule applied to the sibling subprocess call.
+  yields `(None, kind)`. This is T-S1-11's rule applied to the sibling subprocess call.
+- [ASSUMPTION] **[v2.3]** Classification is **delegated** to `classify_failure` (T-S1-16), never
+  reimplemented here. This unit's contract is "capture the right evidence and pass it on"; which
+  strings map to which verdict is T-S1-16's contract, not this one's. A test of this unit should not
+  need to know the signal lists.
+- [ASSUMPTION] **[v2.3]** `timeout` is keyword-only and defaults to `None`, so the parameter is
+  additive: an existing positional call site keeps compiling and keeps its old unbounded behavior.
+  Only the return type is a breaking change.
+- [ASSUMPTION] **[v2.3]** This unit does not retry. It reports the failure's kind; **how many** times
+  to retry and **how long** to wait between attempts belong to the orchestration loop and to
+  `backoff_delay` (T-S1-17). This unit stays a single subprocess call.
 - [ASSUMPTION] `stderr` is captured on the **same** `subprocess.run` call as stdout (not discarded, not
   merged into stdout), since `hidden_unavailable_count` depends on reading it. The plan says the count is
   "parsed from stderr WARNING", which requires stderr to be captured separately.
@@ -153,7 +205,7 @@ process result with a chosen return code, stdout, and stderr, so no network is t
 "collection": { "type","id","title","uploader","source_url","hidden_unavailable_count" }
 // _manifest.json → members[] — one per entry this function returns, in the same order
 { "position": 1, "video_id":"…", "title":"…",
-  "status":"ok|metadata_failed|skipped_unavailable", "files": {…}|null,
+  "status":"ok|metadata_failed|rate_limited", "files": {…}|null,   // rate_limited is new in v2.3
   "transcript": { "available","language","type" } }
 // per-video artifact → collection{} (null for true singles)
 "collection": { "type","id","title","uploader","position","total_members" }
@@ -199,7 +251,12 @@ The undecided ones are logged in `to-do.md`.
 - [NEEDS CLARIFICATION] **A non-playlist URL reaching this function** (e.g. yt-dlp returns a single-video
   document with no `entries`). `classify_input` (T-S1-03) is specified to prevent this, so no real caller
   reaches it; the behavior is undefined and deliberately untested.
-- [NEEDS CLARIFICATION] Whether `--sleep-requests` / `request_delay` (T-S1-12) applies to this
-  enumeration call. The risk section frames the delay as covering "~24 sequential **per-video** calls" and
-  T-S1-12 as applying "before every network-hitting iteration", which reads as the per-video loop; the
-  single up-front enumeration call is not addressed either way.
+- [RESOLVED 2026-07-15] **Whether the rate-limit machinery applies to this enumeration call — it
+  does.** The question was previously open because the risk section frames the delay as covering
+  "~24 sequential **per-video** calls", which reads as the per-video loop, leaving the single up-front
+  enumeration call unaddressed either way. Resolved in v2.3 with the retry work, on the reasoning that
+  this call carries the **whole run**: a 429 here kills a playlist collect before it fetches anything,
+  where the same 429 on a per-video call costs one video. Concretely: this call **is** retried on a
+  `"transient"` classification, with the same `--retries` / `--retry-base` / `--retry-cap` budget as
+  the per-video calls. It is **not** preceded by a `--sleep-requests` pace — there is nothing before it
+  to be paced against, and `hit_network` gating already exempts the run's first network call by design.
