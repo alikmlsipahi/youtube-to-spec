@@ -12,6 +12,7 @@ Phase 1 — pure helpers (T-S1-01..04). Remaining functions are added by later u
 
 import argparse
 import json
+import os
 import random
 import re
 import subprocess
@@ -58,6 +59,46 @@ def request_delay(base: float, rng: Callable[[], float] = random.random) -> floa
     if base <= 0:
         return 0.0
     return base + base * rng()
+
+
+def backoff_delay(attempt: int, base: float, cap: float,
+                  rng: Callable[[], float] = random.random) -> float:
+    """Compute the jittered wait before retry ``attempt`` (zero-based).
+
+    The pre-jitter delay doubles per attempt from ``base`` and is clamped to
+    ``cap``, then takes its jitter from :func:`request_delay` — the jitter policy
+    is already settled there, and forking it would leave two copies to keep in
+    agreement. Clamping *before* the jitter keeps the ceiling itself randomized;
+    clamping after would make every attempt at the ceiling wait exactly ``cap``
+    and re-synchronize, which is what the jitter exists to prevent.
+
+    Pure computation only — sleeping on the result is the caller's job. The
+    degenerate cases (a non-positive ``base`` or ``cap``) inherit
+    ``request_delay``'s "no delay, ``rng`` untouched" rule rather than repeating
+    the zero-check here.
+    """
+    return request_delay(min(base * (2 ** attempt), cap), rng)
+
+
+def escalate_pacing(current: float, ceiling: float, factor: float = 2.0) -> float:
+    """Compute the run's new, slower pacing after a rate-limit event.
+
+    A video that burned through every retry means the service is actively
+    throttling this client; since the run marks that video and carries on rather
+    than aborting, the pace is the only lever left, so each event backs the whole
+    remainder of the run off. There is no decay path back down — the cost of
+    staying slow is a longer run, the cost of speeding back up too early is the
+    IP block.
+
+    ``current <= 0`` returns ``0.0``: ``--sleep-requests 0`` is an explicit
+    opt-out and escalation must never override it. The result is floored at
+    ``0.0`` because it is fed straight back in as the next call's ``current``,
+    where a negative value would trip that same opt-out and silently disable
+    pacing for the rest of the run.
+    """
+    if current <= 0:
+        return 0.0
+    return max(0.0, min(current * factor, ceiling))
 
 
 def classify_input(args) -> str:
@@ -339,31 +380,116 @@ def parse_hidden_unavailable(stderr: str) -> int:
     return 0
 
 
-def fetch_metadata(video_id: str) -> dict | None:
-    """Fetch one video's metadata via yt-dlp subprocess; ``None`` on any failure.
+# Failure class names, matched exactly against the leaf name a caller was handed.
+# `IpBlocked` subclasses `RequestBlocked`, but a string comparison has no class
+# hierarchy to walk, so both are listed.
+_TRANSIENT_FAILURE_NAMES = frozenset({
+    "RequestBlocked", "IpBlocked", "YouTubeRequestFailed",
+})
+_PERMANENT_FAILURE_NAMES = frozenset({
+    "NoTranscriptFound", "TranscriptsDisabled",
+    "VideoUnavailable", "VideoUnplayable", "AgeRestricted",
+})
+
+# Message fragments, matched case-insensitively as substrings: real stderr is
+# multi-line and prefixed (`ERROR: [youtube] abc123: …`), so a signal always
+# arrives inside a longer line rather than as the whole string.
+_TRANSIENT_FAILURE_SIGNALS = (
+    "http error 429", "too many requests",
+    "sign in to confirm you're not a bot",
+    "http error 500", "http error 502", "http error 503",
+    "timed out", "timeout",
+    "connection reset", "connection refused",
+    "temporary failure in name resolution",
+)
+_PERMANENT_FAILURE_SIGNALS = (
+    "private video", "this video is private",
+    "video unavailable", "this video is not available",
+    "removed by the uploader",
+    "members-only", "join this channel",
+    "sign in to confirm your age",
+)
+
+
+def classify_failure(name: str, text: str) -> str:
+    """Judge whether a failure is worth another attempt: ``"transient"`` or ``"permanent"``.
+
+    Takes the failure's class name (``""`` on the yt-dlp path, which is a
+    subprocess and so has no exception object) and its human-readable text
+    (stderr, or ``str(exc)``) rather than an exception class, so one unit serves
+    both of the collector's unrelated failure sources — and so the script stays
+    importable with the network libraries stubbed out, where naming a real
+    exception class would not resolve.
+
+    A transient signal anywhere wins over a permanent one anywhere, including
+    within a single multi-line stderr that carries both: a wrong ``"transient"``
+    costs a bounded, backed-off retry that gives up and records the video anyway,
+    while a wrong ``"permanent"`` writes a recoverable throttle down as fact and
+    loses the transcript for good. An unrecognized failure is ``"permanent"`` —
+    retrying what nobody has characterized aims more traffic at a service that
+    just failed us, working against the very rate-limit avoidance retry serves.
+
+    Pure computation only. The two "Sign in to confirm…" messages share a prefix
+    and resolve oppositely (bot check vs. age gate), so the distinguishing tail is
+    part of each signal.
+    """
+    # Typographic apostrophes reach us from YouTube's own copy; fold them so the
+    # bot-check signal — the one an over-paced run actually receives — still matches.
+    lowered = (text or "").lower().replace("’", "'")
+
+    if name in _TRANSIENT_FAILURE_NAMES or any(
+        signal in lowered for signal in _TRANSIENT_FAILURE_SIGNALS
+    ):
+        return "transient"
+    if name in _PERMANENT_FAILURE_NAMES or any(
+        signal in lowered for signal in _PERMANENT_FAILURE_SIGNALS
+    ):
+        return "permanent"
+    return "permanent"
+
+
+def fetch_metadata(
+    video_id: str, *, timeout: float | None = None
+) -> tuple[dict | None, str | None]:
+    """Fetch one video's metadata via yt-dlp subprocess; ``(None, kind)`` on failure.
 
     Shells out to ``yt-dlp --skip-download --dump-json <video_id>`` (subprocess
-    for stable JSON + per-video isolation). Returns the parsed dict on a clean
-    (return code 0, parseable JSON) run, otherwise ``None`` — never raises and
-    never calls ``sys.exit`` so a single bad video degrades gracefully and the
-    batch continues.
+    for stable JSON + per-video isolation). Returns ``(parsed_dict, None)`` on a
+    clean (return code 0, parseable JSON) run, otherwise ``(None, kind)`` where
+    ``kind`` is :func:`classify_failure`'s verdict — never raises and never calls
+    ``sys.exit`` so a single bad video degrades gracefully and the batch
+    continues.
+
+    The failure's kind rides back with the ``None`` because that sentinel alone
+    cannot tell a private video from a rate limit, and a caller that cannot tell
+    them apart cannot decide whether another attempt is worth the traffic. The
+    judgement is delegated rather than made here, so the signal lists live in one
+    place; this function's job is only to capture the right evidence — which is
+    why stderr must be captured and must not be suppressed.
+
+    ``timeout`` bounds the subprocess; ``None`` leaves it unbounded, where a hung
+    yt-dlp hangs the whole run with no way out.
     """
     try:
         result = subprocess.run(
             ["yt-dlp", "--skip-download", "--dump-json", video_id],
             capture_output=True,
             text=True,
+            timeout=timeout,
         )
-    except Exception:
-        return None
+    except Exception as exc:
+        return None, classify_failure(type(exc).__name__, str(exc))
 
     if result.returncode != 0:
-        return None
+        # No exception object on this path — stderr carries the whole story.
+        return None, classify_failure("", result.stderr or "")
 
     try:
-        return json.loads(result.stdout)
+        return json.loads(result.stdout), None
     except Exception:
-        return None
+        # A clean exit that emits garbage is not a throttle, and re-running it is
+        # not expected to produce different bytes.
+        return None, "permanent"
 
 
 # ---------------------------------------------------------------------------
@@ -409,32 +535,42 @@ def _empty_transcript_block() -> dict:
     }
 
 
-def enumerate_playlist(url: str) -> dict | None:
+def enumerate_playlist(
+    url: str, *, timeout: float | None = None
+) -> tuple[dict | None, str | None]:
     """List a playlist's ordered members via yt-dlp `--flat-playlist`.
 
-    Returns ``{id, title, uploader, entries[], hidden_unavailable_count}`` (entries
-    are ``{id, title}`` in playlist order), or ``None`` on failure. Unavailable
+    Returns ``({id, title, uploader, entries[], hidden_unavailable_count}, None)``
+    (entries are ``{id, title}`` in playlist order), or ``(None, kind)`` on
+    failure, where ``kind`` is :func:`classify_failure`'s verdict. Unavailable
     members still appear in the flat list — carrying a null title — and yt-dlp
     *additionally* reports their count on stderr; that count is recovered via
     :func:`parse_hidden_unavailable`. They enumerate fine and fail later, at the
     per-video metadata fetch, which is what makes them `metadata_failed` members
     rather than missing ones. Uses subprocess for per-run isolation and stable
     JSON, consistent with :func:`fetch_metadata`.
+
+    Classification rides back for the same reason as in :func:`fetch_metadata`,
+    and it matters more here: this single up-front call gates the whole run, so
+    one throttled request would otherwise kill a playlist collect before it
+    fetched anything. stderr now does two jobs — the hidden-unavailable count and
+    the classification evidence — so anything suppressing it breaks both.
     """
     try:
         result = subprocess.run(
             ["yt-dlp", "--flat-playlist", "--dump-single-json", url],
             capture_output=True,
             text=True,
+            timeout=timeout,
         )
-    except Exception:
-        return None
+    except Exception as exc:
+        return None, classify_failure(type(exc).__name__, str(exc))
     if result.returncode != 0:
-        return None
+        return None, classify_failure("", result.stderr or "")
     try:
         data = json.loads(result.stdout)
     except Exception:
-        return None
+        return None, "permanent"
 
     entries = []
     for entry in data.get("entries") or []:
@@ -448,36 +584,45 @@ def enumerate_playlist(url: str) -> dict | None:
         "uploader": data.get("uploader") or data.get("channel"),
         "entries": entries,
         "hidden_unavailable_count": parse_hidden_unavailable(result.stderr or ""),
-    }
+    }, None
 
 
-def fetch_transcript(video_id: str, langs) -> dict:
+def fetch_transcript(video_id: str, langs) -> tuple[dict, str | None]:
     """Fetch and assemble the canonical ``transcript{}`` block for one video.
 
     Lists the available tracks, picks one via :func:`select_transcript_track`,
     fetches its snippets, and builds addressable segments via
-    :func:`build_segments`. Never raises — any failure (transcripts disabled, none
-    found, network error) degrades to an ``available: False`` block so the batch
-    continues.
+    :func:`build_segments`. Never raises — any failure degrades to an
+    ``available: False`` block so the batch continues.
+
+    Returns ``(block, failure)``: ``(block, None)`` when a transcript was
+    fetched, and otherwise a :func:`classify_failure` verdict alongside the
+    empty block. A video with no captions and a video YouTube refused to serve
+    produce the *same* block, so without the verdict the caller cannot tell them
+    apart — and writing the second one down looks identical to recording the
+    first as fact.
     """
     try:
         track_list = list(YouTubeTranscriptApi().list(video_id))
-    except Exception:
-        return _empty_transcript_block()
+    except Exception as exc:
+        return _empty_transcript_block(), classify_failure(
+            type(exc).__name__, str(exc)
+        )
 
     selected_track, info = select_transcript_track(track_list, langs)
     if selected_track is None:
+        # The listing came back and offered nothing usable: a real absence, not a refusal.
         block = _empty_transcript_block()
         block["available_tracks"] = info["available_tracks"]
-        return block
+        return block, "permanent"
 
     try:
         snippets = selected_track.fetch()
         segments = build_segments(snippets)
-    except Exception:
+    except Exception as exc:
         block = _empty_transcript_block()
         block["available_tracks"] = info["available_tracks"]
-        return block
+        return block, classify_failure(type(exc).__name__, str(exc))
 
     return {
         "available": True,
@@ -485,7 +630,7 @@ def fetch_transcript(video_id: str, langs) -> dict:
         "available_tracks": info["available_tracks"],
         "segment_count": len(segments),
         "segments": segments,
-    }
+    }, None
 
 
 def common_title_prefix(titles) -> str:
@@ -585,6 +730,45 @@ def build_artifact(meta: dict, transcript_block: dict, collection_block) -> dict
     }
 
 
+def atomic_write_text(path: Path, text: str) -> None:
+    """Write UTF-8 ``text`` to ``path`` so a reader only ever sees it whole.
+
+    Writes to a temporary file alongside the destination, fsyncs it, then
+    ``os.replace``s it into place, so an observer of ``path`` sees either the
+    complete old content or the complete new content — never the truncate-then-
+    stream window a bare ``write_text`` opens.
+
+    The temp file must share the destination's directory: ``os.replace`` is
+    atomic only within one filesystem, so a system temp dir would silently
+    degrade the rename into a copy and hand the window straight back. The fsync
+    is what stops a crash shortly after the rename from leaving a correctly-named
+    but *zero-length* file — renaming un-synced data is the classic way to end up
+    worse off than the truncation this replaces. The temp name is hidden and does
+    not end in ``.json``, so :func:`scan_existing`'s glob cannot read a half-
+    written artifact as a real one.
+
+    Errors propagate — the destination keeps its previous content and no temp
+    file is left behind — rather than degrading to a return value the way the
+    network-facing helpers do. An unreachable video must not kill a batch, but a
+    failed local write means the output directory is unusable, and carrying on
+    would produce a manifest claiming files that are not there.
+    """
+    tmp = path.with_name(f".{path.name}.tmp")
+    try:
+        with open(tmp, "w", encoding="utf-8", newline="") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)
+    except Exception:
+        # Clean up without masking whatever actually went wrong.
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
+
+
 def write_artifacts(
     artifact: dict, out_dir: Path, fmt: str, basename: str | None = None
 ) -> dict:
@@ -593,16 +777,19 @@ def write_artifacts(
     out_dir.mkdir(parents=True, exist_ok=True)
     base = basename or artifact_basename(artifact["video"]["id"])
     files = {"json": None, "md": None}
-    if fmt in ("json", "both"):
-        path = out_dir / f"{base}.json"
-        path.write_text(
-            json.dumps(artifact, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
-        files["json"] = path.name
+    # The `.md` goes first: the on-disk `.json` is what `--skip-existing` reads
+    # back, so the `.json` landing is the run's commit point. Writing it last
+    # means a crash cannot leave a video that is skipped forever but has no `.md`.
     if fmt in ("md", "both"):
         path = out_dir / f"{base}.md"
-        path.write_text(render_markdown(artifact), encoding="utf-8")
+        atomic_write_text(path, render_markdown(artifact))
         files["md"] = path.name
+    if fmt in ("json", "both"):
+        path = out_dir / f"{base}.json"
+        atomic_write_text(
+            path, json.dumps(artifact, ensure_ascii=False, indent=2)
+        )
+        files["json"] = path.name
     return files
 
 
@@ -610,9 +797,31 @@ def write_manifest(collection: dict, members: list[dict], out_dir: Path) -> None
     """Write ``_manifest.json`` for a collection via :func:`build_manifest`."""
     out_dir.mkdir(parents=True, exist_ok=True)
     manifest = build_manifest(collection, members)
-    (out_dir / "_manifest.json").write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+    atomic_write_text(
+        out_dir / "_manifest.json",
+        json.dumps(manifest, ensure_ascii=False, indent=2),
     )
+
+
+def _call_with_retries(call, retries: int, base: float, cap: float):
+    """Re-run ``call`` while it keeps failing transiently; return its last result.
+
+    ``call`` is any of the network helpers' ``(value, failure)`` returns. Only a
+    ``"transient"`` verdict is retried — retrying a private video would never
+    succeed and aims more traffic at the service the retry budget exists to stay
+    welcome with. The initial attempt is free: ``retries`` counts the attempts
+    *after* it, each preceded by :func:`backoff_delay`'s escalating wait.
+
+    The ``time.sleep`` lives here in the glue so the delay units stay pure and
+    the helpers stay what they claim to be — a single call each.
+    """
+    for attempt in range(max(0, retries) + 1):
+        value, failure = call()
+        if failure != "transient":
+            return value, failure
+        if attempt < retries:
+            time.sleep(backoff_delay(attempt, base, cap))
+    return value, failure
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
@@ -649,7 +858,17 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--skip-existing", dest="skip_existing", action="store_true",
                         help="Skip videos whose JSON already exists.")
     parser.add_argument("--sleep-requests", dest="sleep_requests", type=float,
-                        default=0.0, help="Seconds to sleep between videos.")
+                        default=2.0, help="Seconds to sleep between videos.")
+    parser.add_argument("--retries", type=int, default=5,
+                        help="Retries per network call after a transient failure.")
+    parser.add_argument("--retry-base", dest="retry_base", type=float, default=5.0,
+                        help="First retry's delay in seconds; doubles per retry.")
+    parser.add_argument("--retry-cap", dest="retry_cap", type=float, default=300.0,
+                        help="Ceiling for a retry's delay.")
+    parser.add_argument("--max-pacing", dest="max_pacing", type=float, default=60.0,
+                        help="Ceiling the between-video pacing escalates to.")
+    parser.add_argument("--timeout", type=float, default=120.0,
+                        help="Seconds to allow each yt-dlp call before killing it.")
     return parser
 
 
@@ -663,7 +882,11 @@ def main(argv=None) -> int:
     collection_info = None
     work = []
     if mode == "playlist":
-        playlist = enumerate_playlist(args.urls[0])
+        # Retried like any other call, but not paced: nothing precedes it.
+        playlist, _ = _call_with_retries(
+            lambda: enumerate_playlist(args.urls[0], timeout=args.timeout),
+            args.retries, args.retry_base, args.retry_cap,
+        )
         if playlist is None:
             print("Failed to enumerate playlist.", file=sys.stderr)
             return 1
@@ -721,6 +944,10 @@ def main(argv=None) -> int:
 
     members = []
     hit_network = False
+    # Each rate-limit event backs the whole rest of the run off, permanently: a run
+    # that keeps knocking at the same rate after being throttled is how a soft,
+    # recoverable throttle becomes a hard IP block.
+    pacing = args.sleep_requests
     for video_id, title, position, collection_block in work:
         if args.skip_existing and not print_mode and video_id in index:
             members.append({
@@ -732,14 +959,24 @@ def main(argv=None) -> int:
             continue
 
         if hit_network:
-            time.sleep(request_delay(args.sleep_requests))
+            time.sleep(request_delay(pacing))
         hit_network = True
 
-        meta = fetch_metadata(video_id)
+        meta, failure = _call_with_retries(
+            lambda: fetch_metadata(video_id, timeout=args.timeout),
+            args.retries, args.retry_base, args.retry_cap,
+        )
         if meta is None:
+            if failure == "transient":
+                pacing = escalate_pacing(pacing, args.max_pacing)
+                status = "rate_limited"
+                reason = f"metadata fetch rate-limited after {args.retries} retries"
+            else:
+                status = "metadata_failed"
+                reason = "metadata fetch failed"
             members.append({
                 "position": position, "video_id": video_id, "title": title,
-                "status": "metadata_failed", "reason": "metadata fetch failed",
+                "status": status, "reason": reason,
                 "files": None, "transcript": None,
             })
             continue
@@ -747,7 +984,26 @@ def main(argv=None) -> int:
         if args.metadata_only:
             transcript_block = _empty_transcript_block()
         else:
-            transcript_block = fetch_transcript(video_id, langs)
+            transcript_block, failure = _call_with_retries(
+                lambda: fetch_transcript(video_id, langs),
+                args.retries, args.retry_base, args.retry_cap,
+            )
+            if failure == "transient":
+                # A JSON on disk means a complete artifact, so this one is not written
+                # at all. An artifact carrying a transiently-empty transcript would be
+                # indexed by `scan_existing`, the next `--skip-existing` run would skip
+                # it forever, and the blocked transcript would become silent data loss.
+                # Leaving it absent is what makes resume correct. A video that genuinely
+                # has no captions is complete, and is written exactly as before.
+                pacing = escalate_pacing(pacing, args.max_pacing)
+                members.append({
+                    "position": position, "video_id": video_id,
+                    "title": meta.get("title") or title,
+                    "status": "rate_limited",
+                    "reason": f"transcript fetch rate-limited after {args.retries} retries",
+                    "files": None, "transcript": None,
+                })
+                continue
 
         artifact = build_artifact(meta, transcript_block, collection_block)
 
