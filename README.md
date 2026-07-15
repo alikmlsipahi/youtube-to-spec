@@ -34,7 +34,8 @@ The pipeline doesn't care about domain — swap the prompt files in `skills/spec
 
 **Skill 1 — `youtube-artifact-collector`**
 - Downloads video metadata and the full transcript from a YouTube URL, video id, or playlist
-- Saves a lossless `.json` artifact and a readable `.md` file per video
+- Saves a lossless `.json` artifact and a readable `.md` file per video, named after the video's
+  title — playlist members keep their position (`01-tek-tek-ogrenci-yukleme.json`)
 - For playlists: produces a `_manifest.json` with the full member list — missing or private videos are listed, never silently skipped
 
 **Skill 2 — `spec-distiller`**
@@ -61,13 +62,24 @@ uv run skills/youtube-artifact-collector/scripts/extract_artifacts.py \
   "https://www.youtube.com/playlist?list=PL..." --playlist
 ```
 
-Output lands in `data/`.
+Output lands in `data/`, named after each video's title:
+
+```
+data/
+├── edesis-kayit-modulu-rehberi-PLk-DU0q6QMPP7RfYiyhiJY7qQOXoaFKHL/
+│   ├── _manifest.json
+│   ├── 01-tek-tek-ogrenci-yukleme.json      # + .md
+│   ├── 02-tek-tek-veli-ekleme.json          # + .md
+│   └── …
+└── _singles/
+    └── what-is-claude-code.json             # + .md
+```
 
 **Step 2 — distil (Claude engine, no API key needed)**
 
 Open Claude Code and tell it:
 
-> Run the spec-distiller skill on `data/_singles/fl1DSmwQKKY.json`
+> Run the spec-distiller skill on `data/_singles/what-is-claude-code.json`
 
 Claude reads the artifact and the prompt files and produces the requirements document in-chat.
 
@@ -75,7 +87,7 @@ Claude reads the artifact and the prompt files and produces the requirements doc
 
 ```bash
 uv run skills/spec-distiller/scripts/extract_requirements.py \
-  data/_singles/fl1DSmwQKKY.json --engine openai --print
+  data/_singles/what-is-claude-code.json --engine openai --print
 ```
 
 ---

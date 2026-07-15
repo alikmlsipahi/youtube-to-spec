@@ -599,10 +599,13 @@ def process_artifact(path, config, system_prompt, template, client):
     return artifact, doc, markdown
 
 
-def write_outputs(artifact_path, artifact, doc, markdown, out_dir, no_save):
-    """Write ``<video_id>.requirements.json`` + ``.md`` (or print when no_save)."""
-    video = artifact.get("video") if isinstance(artifact, dict) else None
-    video_id = (video or {}).get("id") or pathlib.Path(artifact_path).stem
+def write_outputs(artifact_path, doc, markdown, out_dir, no_save):
+    """Write ``<artifact>.requirements.json`` + ``.md`` (or print when no_save).
+
+    The basename mirrors the source artifact's, which keeps Skill 1's naming policy
+    the only place that policy is decided.
+    """
+    base = pathlib.Path(artifact_path).stem
 
     if no_save:
         print(markdown)
@@ -610,10 +613,10 @@ def write_outputs(artifact_path, artifact, doc, markdown, out_dir, no_save):
 
     target_dir = pathlib.Path(out_dir) if out_dir else pathlib.Path(artifact_path).parent
     target_dir.mkdir(parents=True, exist_ok=True)
-    (target_dir / f"{video_id}.requirements.json").write_text(
+    (target_dir / f"{base}.requirements.json").write_text(
         json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8"
     )
-    (target_dir / f"{video_id}.requirements.md").write_text(
+    (target_dir / f"{base}.requirements.md").write_text(
         markdown, encoding="utf-8"
     )
 
@@ -680,10 +683,10 @@ def main(argv=None) -> int:
     no_save = args.no_save or args.print_
 
     def _work(path):
-        artifact, doc, markdown = process_artifact(
+        _, doc, markdown = process_artifact(
             path, config, system_prompt, template, client
         )
-        write_outputs(path, artifact, doc, markdown, args.out_dir, no_save)
+        write_outputs(path, doc, markdown, args.out_dir, no_save)
         return path
 
     if config["concurrency"] > 1 and len(inputs) > 1 and not no_save:

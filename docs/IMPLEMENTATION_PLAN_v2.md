@@ -53,7 +53,7 @@ Newly locked this session:
 | **OpenAI engine** | **Build fully now** (configurable model/temp/max_tokens/response_format/timeout/retry/concurrency, json_schema structured output). |
 | **Long-transcript chunking** | **Seam + `# TODO` only** for Phase 1 (brief says "evaluate", not "implement"). |
 | **Skill 2 ID scheme** | **Custom domain-coded `<MODULE>-<FEATURE>-<NNN>`** — see Skill 2 below. |
-| **File/manifest naming** | `_manifest.json`, `<video_id>.json` / `<video_id>.md`, `_singles/`, slug = `slugify(title)-<id>` — centralized in helpers so it stays a one-edit change. |
+| **File/manifest naming** | **[v2.1]** `_manifest.json`, `<slug>.json` / `<slug>.md` (collection members prefixed with their playlist position: `01-<slug>.json`), `_singles/`, collection folder = `slugify(title)-<id>` — centralized in helpers so it stays a one-edit change. *Amended from `<video_id>.json`: artifact filenames now derive from the video title, which is what the row's "one-edit change" clause anticipated. Invalidates nothing else — the manifest schema, `collection_dir_name`, and `slugify`'s own contract (T-S1-04) are unchanged; `files{json,md}` stays the resolution path for consumers.* |
 | **[v2] Prose/asset authoring** | **Phase C (non-blind)** after units are green, before the gate layer; agent drafts, human reviews at `A-*`. See "Build & verification sequence". |
 
 ## Grounding verified against the brief & real data
@@ -119,10 +119,10 @@ SKILL.md frontmatter convention (`skills/youtube-transcript/SKILL.md:1-4`): YAML
 4. `fetch_transcript(video_id, langs)` — `YouTubeTranscriptApi().list()` + `find_transcript(langs)` (within a matched language prefers **manual over auto**, per library default), fallback to first track; record selected language/type + **full available-track inventory**; segments `{index,start,duration,end,text}`. **Never modify transcript text.**
 5. `render_markdown(artifact)` — metadata header + `[MM:SS]`/`[HH:MM:SS]` transcript via `format_timestamp`.
 6. `write_artifacts()` + `write_manifest()` — layout below; `mkdir(parents=True, exist_ok=True)`.
-7. Helpers `collection_dir_name()` / `artifact_basename()` — centralize all naming.
+7. Helpers `collection_dir_name()` / `artifact_basename()` — centralize all naming. **[v2.1]** `artifact_basename(video_id, title, position, total, strip_prefix)` builds `<position>-<slug>` in a collection / `<slug>` standalone, falling back to the video id when the title yields no slug; `common_title_prefix(titles)` drops the boilerplate every member's title shares; `scan_existing(out_dir)` indexes `{video_id: basename}` off disk so `--skip-existing` stays network-free.
 8. Print mode (`--no-save` / `--print`).
 
-**Canonical per-video JSON (`<video_id>.json`):**
+**Canonical per-video JSON (`<slug>.json` — **[v2.1]**, see §File layout):**
 ```jsonc
 {
   "schema_version": "1.0",
@@ -150,13 +150,21 @@ as sibling keys without rework. `transcript.segments[].index` is the stable addr
 data/
 ├── <slug(title)>-<playlist_id>/
 │   ├── _manifest.json
-│   ├── <video_id>.json
-│   ├── <video_id>.md
+│   ├── 01-<slug>.json
+│   ├── 01-<slug>.md
+│   ├── 02-<slug>.json
 │   └── …
 └── _singles/
-    ├── <video_id>.json
-    └── <video_id>.md
+    ├── <slug>.json
+    └── <slug>.md
 ```
+
+**[v2.1] Artifact basename:** `slugify(<video title>)`, with the token prefix every member of the
+collection shares dropped (`edesis | Kayıt Modülü Nasıl Kullanılır? Şube Ekleme!` → `15-sube-ekleme`).
+Collection members carry their playlist position, zero-padded to the member count; standalone videos
+carry none. The video id is the fallback when a title yields no usable slug (absent title, emoji-only,
+fully transliterated away) and the disambiguator when two standalone videos share a title. Consumers
+resolve members through the manifest's `files{json,md}`, never by rebuilding the name.
 
 **`_manifest.json`:** `collection{type,id,title,uploader,source_url,hidden_unavailable_count}`,
 `members[]` (position, video_id, title, `status` = ok|metadata_failed|skipped_unavailable,
@@ -213,13 +221,13 @@ feature-requirement-extractor/
 - A **module/action lookup table lives in the prompt file** so codes evolve without touching code.
 - **Consolidation / global renumbering is a separate, later stage** (not Phase 1).
 
-**Output** (default: written alongside the source artifact — same collection folder or `_singles/`; override with `--out-dir`)**:** `<video_id>.requirements.md` + `<video_id>.requirements.json`. Doc = source header
+**Output** (default: written alongside the source artifact — same collection folder or `_singles/`; override with `--out-dir`)**:** **[v2.1]** `<basename>.requirements.md` + `<basename>.requirements.json`, where `<basename>` mirrors the source artifact's filename (Skill 1 owns naming; Skill 2 stays policy-agnostic). Doc = source header
 (video url/title/channel/collection) + mini-summary + Module→Feature→Requirements (each requirement:
 `id`=`<MODULE>-<FEATURE>-<NNN>`, `text`, `source_video_id`, `trace{timestamp,segment_index}`) +
 Assumptions & Open Questions. JSON mirrors the doc. Terminology, granularity, and the code lookup all
 live in the swappable prompt/template.
 
-**Input:** path to a `<video_id>.json` artifact, **or** a collection folder → iterate `_manifest.json`
+**Input:** path to an artifact `.json`, **or** a collection folder → iterate `_manifest.json`
 members with `status: ok`. Coupling is the JSON schema (`schema_version`) only; defensive reads.
 
 **CLI (OpenAI engine):**
@@ -409,7 +417,7 @@ row (`pending → drafted → accepted`; `accepted` is reached at the mapped `A-
 complete** — `B4`/`B5`/`B6` require the `SKILL.md` files and Skill 2 assets to exist):
 1. **Skill 1 single-video core** → `uv run extract_artifacts.py fl1DSmwQKKY --print` → 60 Turkish auto
    segments, `selected.type:"auto"`, full metadata, `available_tracks=[tr]` *(I-01)*.
-2. **Skill 1 save + layout** → without `--print` → `data/_singles/fl1DSmwQKKY.json` + `.md`; segments carry `index`.
+2. **Skill 1 save + layout** → without `--print` → `data/_singles/what-is-claude-code.json` + `.md`; segments carry `index`.
 3. **Skill 1 playlist + graceful degradation** → real playlist → `data/<slug>-PLk…/` + `_manifest.json`
    (`hidden_unavailable_count:5`, ordered members), per-video failures recorded, run **continues** *(I-02)*.
 4. **Skill 1 `watch?v=…&list=…`** → single by default; `--playlist` expands. SKILL.md trigger test *(A-01)* **[v2] needs C1**.

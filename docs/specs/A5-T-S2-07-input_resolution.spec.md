@@ -1,7 +1,7 @@
 # Spec — `resolve_inputs` / `load_artifact` (input resolution) (T-S2-07)
 
 > Behavioral contract for the blind implementer. Source of truth: `docs/IMPLEMENTATION_PLAN_v2.md`
-> (§Skill 2 Input — "path to a `<video_id>.json` artifact, **or** a collection folder → iterate
+> (§Skill 2 Input — "path to an artifact `.json`, **or** a collection folder → iterate
 > `_manifest.json` members with `status: ok`. Coupling is the JSON schema (`schema_version`) only;
 > defensive reads."; §Skill 1 `_manifest.json` shape — `members[]` with `position`, `video_id`,
 > `status = ok|metadata_failed|skipped_unavailable`, `files{json,md}|null`; catalog row T-S2-07
@@ -29,9 +29,9 @@ to process; `load_artifact` reads *one* artifact JSON defensively.
 ## Inputs
 
 - `path` — a filesystem path (str or `Path`) that is **either**:
-  - a **file** — a single `<video_id>.json` artifact, or
+  - a **file** — a single artifact `.json`, or
   - a **directory** — a collection folder containing a `_manifest.json` (and the member artifacts).
-- For `load_artifact`, `path` is a single `<video_id>.json` artifact file.
+- For `load_artifact`, `path` is a single artifact `.json` file.
 
 ## Expected behavior — `resolve_inputs`
 
@@ -98,7 +98,7 @@ to process; `load_artifact` reads *one* artifact JSON defensively.
 - [ASSUMPTION] The collection manifest filename is exactly **`_manifest.json`** and lives at the root of
   the collection directory (matches Skill 1's layout).
 - [ASSUMPTION] `member.files.json` is a **basename relative to the collection directory** (Skill 1 writes
-  `<video_id>.json` into the same folder), so the artifact path is `dir / files.json`. If an absolute path
+  the artifact into the same folder), so the artifact path is `dir / files.json`. If an absolute path
   were stored, joining still resolves it.
 - [ASSUMPTION] "Iterate members with `status: ok`" additionally requires a usable `files.json`; an ok
   member without one is defensively skipped rather than producing a missing-file crash.
@@ -120,7 +120,7 @@ to process; `load_artifact` reads *one* artifact JSON defensively.
   "members": [
     { "position": 1, "video_id": "…", "title": "…",
       "status": "ok",                       // ok | metadata_failed | skipped_unavailable
-      "files": { "json": "<video_id>.json", "md": "<video_id>.md" }, // null when failed/skipped
+      "files": { "json": "01-<slug>.json", "md": "01-<slug>.md" }, // null when failed/skipped
       "transcript": { "available": true, "language": "tr", "type": "auto" } }
   ],
   "summary": { "total","ok","failed","no_transcript" }

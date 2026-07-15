@@ -35,11 +35,12 @@ collects metadata **and** transcripts and writes a relational artifact set.
 
 ## What it produces
 
-For every video, a lossless canonical **`<video_id>.json`** plus a readable
-**`<video_id>.md`** view. For a collection (playlist or multi-URL run), a
-**`_manifest.json`** that records the ordered membership, per-member status, and
-a summary — failed/unavailable videos are **listed with their status and reason,
-never silently dropped**.
+For every video, a lossless canonical **`<slug>.json`** plus a readable
+**`<slug>.md`** view, where `<slug>` is the video's title slugified — collection
+members are additionally numbered by playlist position (`01-<slug>.json`). For a
+collection (playlist or multi-URL run), a **`_manifest.json`** that records the
+ordered membership, per-member status, and a summary — failed/unavailable videos
+are **listed with their status and reason, never silently dropped**.
 
 Key properties (see `docs/IMPLEMENTATION_PLAN_v2.md` for the canonical schema):
 
@@ -85,7 +86,7 @@ video IDs**, or a **playlist URL**, mixed freely.
 ### Examples
 
 ```bash
-# Single video → data/_singles/<video_id>.json + .md
+# Single video → data/_singles/what-is-claude-code.json + .md
 uv run …/extract_artifacts.py fl1DSmwQKKY
 
 # A watch?v=…&list=… URL, collected as just the video (default)
@@ -107,13 +108,36 @@ uv run …/extract_artifacts.py fl1DSmwQKKY --print
 data/
 ├── <slug(title)>-<playlist_id>/      # one folder per collection
 │   ├── _manifest.json                #   ordered membership + status + summary
-│   ├── <video_id>.json               #   lossless canonical artifact
-│   ├── <video_id>.md                 #   readable view
+│   ├── 01-<slug>.json                #   lossless canonical artifact
+│   ├── 01-<slug>.md                  #   readable view
+│   ├── 02-<slug>.json
 │   └── …
 └── _singles/                         # standalone (true single) videos
-    ├── <video_id>.json
-    └── <video_id>.md
+    ├── <slug>.json
+    └── <slug>.md
 ```
+
+## Artifact naming
+
+A basename is the video's title, slugified — the same `slugify` that builds the
+collection folder name, so Turkish characters transliterate to ASCII and the result
+is filesystem-safe.
+
+- **Collection members** are prefixed with their playlist position (`01-`, `02-`, …),
+  zero-padded to the member count so lexical order matches playlist order. Standalone
+  videos get no prefix.
+- **A boilerplate prefix shared by every member's title is dropped.** A series whose
+  titles all read `edesis | Kayıt Modülü Nasıl Kullanılır? …` yields
+  `01-tek-tek-ogrenci-yukleme.json`, not a 55-character prefix repeated 19 times. The
+  prefix is only dropped when at least three titles agree on it and no member would be
+  left with an empty name.
+- **The video id is the fallback**, used whenever a title yields no usable slug — a
+  private/deleted member with no title, an emoji-only title, or a script that
+  transliterates away entirely. It is also appended to disambiguate two standalone
+  videos that share a title.
+
+`_manifest.json` records each member's actual filenames under `files{json,md}`, so
+consumers resolve artifacts through the manifest rather than reconstructing names.
 
 ## Graceful degradation
 

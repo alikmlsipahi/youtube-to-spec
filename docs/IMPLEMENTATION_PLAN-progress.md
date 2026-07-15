@@ -39,7 +39,9 @@
 > below, not unit tests.
 
 - [done] SK1-ORCH — extract_artifacts.py main/CLI/IO + enumerate_playlist/fetch_transcript/build_artifact/write_* (verified by I-01 ✓, I-02 ✓)
+  - [done] **[v2.1]** title-derived artifact filenames — `artifact_basename` re-signed + `common_title_prefix` / `scan_existing` added; `--skip-existing` now resolves via the on-disk id index. `slugify`/`collection_dir_name` (T-S1-04) untouched, so no blind-TDD chain was re-opened. Re-verified: real playlist → `01-tek-tek-ogrenci-yukleme.json` … `19-…`, manifest `summary` unchanged (24/19 ok/5 failed), `--skip-existing` second pass skipped 19 in 0.09s (no network); 247 unit tests green.
 - [done] SK2-ORCH — extract_requirements.py main/CLI + OpenAI engine (load_prompt_files/build_response_format/call_openai/process_artifact/write_outputs) (verified by I-03 ✓; claude-path ✓)
+  - [done] **[v2.1]** `write_outputs` names outputs after the source artifact's basename instead of `video.id`, keeping Skill 1 the only owner of naming policy; `SKILL.md` step 6 re-authored to match so both engines agree. Re-verified: `01-tek-tek-ogrenci-yukleme.requirements.{json,md}`; `resolve_inputs` still resolves all 19 members via the manifest.
 
 ## Authoring (Phase C — non-blind; prose/assets; test-denylist still applies)
 

@@ -50,7 +50,8 @@ output for *both* engines without any code change.
 
 Either:
 
-- a single artifact file — `<video_id>.json` produced by Skill 1, or
+- a single artifact file — an artifact `.json` produced by Skill 1 (named after the
+  video's title, e.g. `what-is-claude-code.json`), or
 - a **collection folder** — a directory containing `_manifest.json`; process each
   member whose `status` is `ok` (in manifest order), using the manifest for
   module/collection context.
@@ -59,9 +60,11 @@ Either:
 
 When asked to extract requirements with the default engine, do this in-chat:
 
-1. **Resolve the input.** If given a `<video_id>.json`, use it directly. If given
+1. **Resolve the input.** If given an artifact `.json`, use it directly. If given
    a collection folder, read its `_manifest.json` and process every member with
-   `status: ok`, in order; the manifest also gives the collection/module title.
+   `status: ok`, in order, resolving each member's file through its `files.json`
+   entry rather than reconstructing the name; the manifest also gives the
+   collection/module title.
 2. **Read the artifact JSON.** Pull the `video{}` block (id, title, url, channel,
    description), the `collection{}` block (module/collection title), and the
    `transcript.segments[]` (each with its stable `index`, `start`, and verbatim
@@ -82,9 +85,13 @@ When asked to extract requirements with the default engine, do this in-chat:
    Number requirements **video-locally from `001`**; never embed the video id in
    an `id`.
 6. **Render and save.** Format the document using
-   `templates/requirement_doc.md` and write `<video_id>.requirements.md` plus a
-   mirrored `<video_id>.requirements.json` alongside the source artifact (same
+   `templates/requirement_doc.md` and write `<basename>.requirements.md` plus a
+   mirrored `<basename>.requirements.json` alongside the source artifact (same
    collection folder or `_singles/`), unless the user asks to print instead.
+   `<basename>` is the **source artifact's filename without its extension** —
+   `01-tek-tek-ogrenci-yukleme.json` → `01-tek-tek-ogrenci-yukleme.requirements.md`.
+   Never rebuild the name from the video id: Skill 1 owns the naming policy, and
+   mirroring the input keeps both engines emitting identical filenames.
 
 ## OpenAI engine — how to run it (optional)
 
@@ -116,8 +123,9 @@ clear, secret-safe error.
 
 ## Output
 
-`<video_id>.requirements.md` + `<video_id>.requirements.json` (the JSON mirrors
-the document). The document = source header (title / url / channel / collection)
+`<basename>.requirements.md` + `<basename>.requirements.json`, where `<basename>`
+mirrors the source artifact's filename (the JSON mirrors the document). The
+document = source header (title / url / channel / collection)
 + summary + Module→Feature→Requirements (with per-requirement traces) +
 Assumptions + Open Questions.
 

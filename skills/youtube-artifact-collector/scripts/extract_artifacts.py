@@ -470,9 +470,83 @@ def fetch_transcript(video_id: str, langs) -> dict:
     }
 
 
-def artifact_basename(video_id: str) -> str:
-    """Centralized per-video artifact basename (one edit point for layout changes)."""
-    return video_id
+def common_title_prefix(titles) -> str:
+    """Longest slug-token run shared by every usable title in a collection.
+
+    Collection members routinely repeat a channel/series boilerplate on every
+    title, which would otherwise dominate each basename. Returns ``""`` rather
+    than a prefix that is meaningless (fewer than three titles to compare) or
+    destructive (stripping it would leave some member with nothing).
+    """
+    token_lists = [slugify(t).split("-") for t in titles if t]
+    token_lists = [tokens for tokens in token_lists if tokens != [""]]
+    if len(token_lists) < 3:
+        return ""
+
+    shared = 0
+    while (
+        all(len(tokens) > shared for tokens in token_lists)
+        and len({tokens[shared] for tokens in token_lists}) == 1
+    ):
+        shared += 1
+
+    if not shared or any(len(tokens) == shared for tokens in token_lists):
+        return ""
+    return "-".join(token_lists[0][:shared])
+
+
+def scan_existing(out_dir: Path) -> dict:
+    """Map ``{video_id: basename}`` over artifacts already written to ``out_dir``.
+
+    A basename is no longer derivable from a video id alone, so ``--skip-existing``
+    resolves the other way round: read the ids back off disk. Local I/O only, which
+    preserves the flag's guarantee of making no network request. Skips the manifest
+    and Skill 2's requirement docs; unreadable files are ignored.
+    """
+    index = {}
+    if not out_dir.is_dir():
+        return index
+
+    for path in sorted(out_dir.glob("*.json")):
+        if path.name == "_manifest.json" or path.name.endswith(".requirements.json"):
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(data, dict):
+            continue
+        video = data.get("video")
+        video_id = video.get("id") if isinstance(video, dict) else None
+        if video_id:
+            index[video_id] = path.stem
+    return index
+
+
+def artifact_basename(
+    video_id: str,
+    title: str | None = None,
+    position: int | None = None,
+    total: int | None = None,
+    strip_prefix: str = "",
+) -> str:
+    """Centralized per-video artifact basename (one edit point for layout changes).
+
+    ``<position>-<slug>`` inside a collection, bare ``<slug>`` standalone. The video
+    id is the fallback for any title that yields no usable slug — absent, emoji-only,
+    or written in a script `slugify` transliterates away. Position width follows the
+    member count so lexical order matches playlist order past nine members.
+    """
+    slug = slugify(title) if title else ""
+    if strip_prefix and slug.startswith(f"{strip_prefix}-"):
+        slug = slug[len(strip_prefix) + 1:]
+    if not slug:
+        slug = video_id
+
+    if position is None:
+        return slug
+    width = max(2, len(str(total))) if total else 2
+    return f"{position:0{width}d}-{slug}"
 
 
 def build_artifact(meta: dict, transcript_block: dict, collection_block) -> dict:
@@ -493,11 +567,13 @@ def build_artifact(meta: dict, transcript_block: dict, collection_block) -> dict
     }
 
 
-def write_artifacts(artifact: dict, out_dir: Path, fmt: str) -> dict:
+def write_artifacts(
+    artifact: dict, out_dir: Path, fmt: str, basename: str | None = None
+) -> dict:
     """Write the per-video ``.json`` and/or ``.md`` files; return the manifest
     ``files{json,md}`` descriptor (each name or ``None``)."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    base = artifact_basename(artifact["video"]["id"])
+    base = basename or artifact_basename(artifact["video"]["id"])
     files = {"json": None, "md": None}
     if fmt in ("json", "both"):
         path = out_dir / f"{base}.json"
@@ -612,18 +688,29 @@ def main(argv=None) -> int:
     else:
         out_dir = out_dir / "_singles"
 
+    # Collection titles tend to repeat a series boilerplate on every member; drop
+    # it once so each basename leads with what distinguishes it. The flat-playlist
+    # titles gathered above match the per-video metadata titles, so the prefix can
+    # be settled before the fetch loop rather than buffering every artifact.
+    strip_prefix = common_title_prefix([title for _, title, _, _ in work])
+    total_members = len(work) if collection_info else None
+
+    # A basename now depends on the title, so `--skip-existing` can no longer build
+    # one from the video id up front. Resolve it the other way: index the ids already
+    # on disk. Doubles as the collision guard for standalone videos sharing a title.
+    index = {} if print_mode else scan_existing(out_dir)
+    taken = {base: vid for vid, base in index.items()}
+
     members = []
     for video_id, title, position, collection_block in work:
-        if args.skip_existing and not print_mode:
-            existing = out_dir / f"{artifact_basename(video_id)}.json"
-            if existing.exists():
-                members.append({
-                    "position": position, "video_id": video_id, "title": title,
-                    "status": "ok", "reason": "skipped (already exists)",
-                    "files": {"json": existing.name, "md": None},
-                    "transcript": None,
-                })
-                continue
+        if args.skip_existing and not print_mode and video_id in index:
+            members.append({
+                "position": position, "video_id": video_id, "title": title,
+                "status": "ok", "reason": "skipped (already exists)",
+                "files": {"json": f"{index[video_id]}.json", "md": None},
+                "transcript": None,
+            })
+            continue
 
         meta = fetch_metadata(video_id)
         if meta is None:
@@ -648,7 +735,18 @@ def main(argv=None) -> int:
                 print(render_markdown(artifact))
             files = None
         else:
-            files = write_artifacts(artifact, out_dir, args.format)
+            base = artifact_basename(
+                video_id,
+                meta.get("title") or title,
+                position,
+                total_members,
+                strip_prefix,
+            )
+            owner = taken.get(base)
+            if owner is not None and owner != video_id:
+                base = f"{base}-{video_id}"
+            taken[base] = video_id
+            files = write_artifacts(artifact, out_dir, args.format, base)
 
         selected = transcript_block.get("selected") or {}
         members.append({

@@ -26,7 +26,7 @@ def render_markdown(doc: dict, artifact: dict | None = None) -> str
 Both are pure and deterministic: no network, no file I/O, no OpenAI call. The caller performs the OpenAI
 request and passes the *returned response object* into `parse_response`; the parsed document is then
 handed to `render_markdown`. The dict that `parse_response` returns **is** the JSON that the engine
-persists (`<video_id>.requirements.json`) — i.e. the JSON and the Markdown are two views of one document,
+persists (`<basename>.requirements.json`) — i.e. the JSON and the Markdown are two views of one document,
 satisfying the "JSON mirrors the doc" and "engine-agnostic same shape" requirements.
 
 ## Inputs
@@ -37,7 +37,7 @@ satisfying the "JSON mirrors the doc" and "engine-agnostic same shape" requireme
   content is absent/`None` (and/or a `refusal` field is set).
 - `doc: dict` — the structured requirements document (the object `parse_response` returns). Shape under
   "Key entities" below.
-- `artifact: dict | None` — one canonical Skill 1 `<video_id>.json` object, used **only** to populate the
+- `artifact: dict | None` — one canonical Skill 1 artifact `.json` object, used **only** to populate the
   source header (video url/title/channel + collection title) deterministically. When `None`, the header
   is drawn from the document's own optional `source{}` block.
 

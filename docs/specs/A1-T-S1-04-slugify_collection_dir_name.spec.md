@@ -96,8 +96,13 @@ Both functions are pure and deterministic; no I/O.
 ## Key entities (canonical schema excerpt)
 
 `collection_dir_name` produces the on-disk folder `data/<slug>-<playlist_id>/` that holds
-`_manifest.json` + per-video `<video_id>.json` / `.md` (plan §File layout). The slug also feeds the
-human-readable identity of a `collection{}` block whose `id` is the raw playlist id.
+`_manifest.json` + per-video `01-<slug>.json` / `.md` (plan §File layout, **[v2.1]**). The slug also
+feeds the human-readable identity of a `collection{}` block whose `id` is the raw playlist id.
+
+`slugify` is additionally reused — unchanged, and outside this spec's contract — by the
+orchestration-layer helper `artifact_basename`, which derives per-video filenames from video titles.
+That helper owns its own fallback, position-prefix, and boilerplate-stripping rules; **none of them
+constrain `slugify`, whose behavior specified here is untouched by that reuse.**
 
 ## NEEDS CLARIFICATION
 

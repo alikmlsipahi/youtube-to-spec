@@ -29,7 +29,7 @@ the artifact JSON from disk; this unit only transforms text. The template uses d
 - `template: str` — the raw text of an external prompt file containing zero or more `{{placeholder}}`
   markers. Authored later in Phase C2 **against this contract**; the unit-test tier uses a fixture
   template, not the shipped one.
-- `artifact: dict` — one canonical Skill 1 `<video_id>.json` object (`schema_version` `"1.0"`,
+- `artifact: dict` — one canonical Skill 1 artifact `.json` object (`schema_version` `"1.0"`,
   `kind: "video_artifact"`), with `video{}`, `collection{}` (may be `null`), and `transcript{}` blocks.
 
 ## Recognized placeholder vocabulary (the contract)

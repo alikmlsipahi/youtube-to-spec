@@ -38,3 +38,5 @@ data/
 *.backup.md
 README.backup.md
 CLAUDE.md
+.claude/settings.local.json
+docs/claude_plans/
