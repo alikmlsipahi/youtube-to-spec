@@ -62,8 +62,18 @@ def _artifacts(tmp_path) -> list[Path]:
 
 
 def _was_rate_limited(result) -> bool:
-    """Whether the run gave up on a transient block rather than a real failure."""
-    return result.returncode != 0 and "Rate-limited" in result.stderr
+    """Whether the run gave up on a transient block rather than a real failure.
+
+    Excludes a crash explicitly. This helper is what lets a test take the "that was
+    environmental, skip" escape route, so a crash reaching it would be excused as a
+    network condition and never reported — the worst way to lose a real regression.
+    A run that died after printing the warning is not a rate-limited run.
+    """
+    return (
+        result.returncode != 0
+        and "Rate-limited" in result.stderr
+        and "Traceback (most recent call last)" not in result.stderr
+    )
 
 
 @pytest.mark.integration
@@ -190,6 +200,14 @@ def test_skill1_single_permanent_failure_is_not_silent(require_network, tmp_path
             "permanently unavailable; the permanent-failure path did not execute"
         )
 
+    # Check this before the exit code: a crash also exits non-zero and also prints,
+    # so it satisfies every assertion below without the code ever having handled
+    # anything. Failing *correctly* and failing *apart* are not the same result, and
+    # only this line can tell them apart. Caught for real while fixing this defect —
+    # a NameError in the exit rule produced a textbook-looking exit 1 + stderr.
+    assert "Traceback (most recent call last)" not in result.stderr, (
+        f"the run crashed rather than reporting a failed video:\n{result.stderr}"
+    )
     assert result.returncode != 0, (
         "collecting a permanently-unavailable video exited 0 — a caller sees "
         "success for a run that collected nothing"

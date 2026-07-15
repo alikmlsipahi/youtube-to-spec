@@ -571,6 +571,13 @@ def enumerate_playlist(
         data = json.loads(result.stdout)
     except Exception:
         return None, "permanent"
+    if not isinstance(data, dict):
+        # "It parsed" is not "it is usable". A playlist document is a mapping, and a
+        # list, `null` or a bare scalar cannot be read as one — but `json.loads`
+        # accepts them all, so a guard that only catches parse errors lets them
+        # through and leaves the next read to raise, breaking the never-raises
+        # contract at the one call that gates the whole run.
+        return None, "permanent"
 
     entries = []
     for entry in data.get("entries") or []:
@@ -803,20 +810,34 @@ def write_manifest(collection: dict, members: list[dict], out_dir: Path) -> None
     )
 
 
-def _warn_rate_limited(video_id: str, stage: str, retries: int) -> None:
-    """Report on stderr that a video was dropped to a rate limit.
+def _warn_failed(video_id: str, stage: str, kind: str, retries: int) -> None:
+    """Report on stderr that a video was dropped, and whether re-running is worth it.
 
     The manifest records this too, but only a collection has one — a single video
-    would otherwise be dropped in silence, since the artifact is deliberately not
-    written. stderr is the user's face where the manifest is the machine's, and a
-    run that collects nothing and says nothing is worse than the wrong data it
-    replaced.
+    would otherwise be dropped in silence, since no artifact is written. stderr is
+    the user's face where the manifest is the machine's, and a run that collects
+    nothing and says nothing is worse than the wrong data it replaced.
+
+    The two kinds read differently because they ask different things of the reader:
+    a rate limit clears on its own, so re-running is the fix, while a permanent
+    failure will not clear — and sending a user back to re-run a deleted video
+    wastes their time and spends traffic budget on a request that cannot succeed.
+    Neither message names a cause: ``"permanent"`` also covers every failure the
+    classifier does not recognize, and guessing "private" at a missing yt-dlp
+    would be a confident lie.
     """
-    print(
-        f"Rate-limited fetching {stage} for {video_id} after {retries} retries; "
-        "not written. Re-run to retry it.",
-        file=sys.stderr,
-    )
+    if kind == "transient":
+        print(
+            f"Rate-limited fetching {stage} for {video_id} after {retries} retries; "
+            "not written. Re-run to retry it.",
+            file=sys.stderr,
+        )
+    else:
+        print(
+            f"Failed fetching {stage} for {video_id}; not written. "
+            "Re-running is not expected to help.",
+            file=sys.stderr,
+        )
 
 
 def _call_with_retries(call, retries: int, base: float, cap: float):
@@ -960,10 +981,10 @@ def main(argv=None) -> int:
 
     members = []
     hit_network = False
-    # Counted so the run can tell "collected nothing because it was blocked" from
-    # "collected something, with losses listed" — the two must not exit alike.
+    # Counted so the run can tell "collected nothing" from "collected something,
+    # with losses listed" — the two must not exit alike.
     collected = 0
-    rate_limited = 0
+    failed = 0
     # Each rate-limit event backs the whole rest of the run off, permanently: a run
     # that keeps knocking at the same rate after being throttled is how a soft,
     # recoverable throttle becomes a hard IP block.
@@ -992,11 +1013,11 @@ def main(argv=None) -> int:
                 pacing = escalate_pacing(pacing, args.max_pacing)
                 status = "rate_limited"
                 reason = f"metadata fetch rate-limited after {args.retries} retries"
-                rate_limited += 1
-                _warn_rate_limited(video_id, "metadata", args.retries)
             else:
                 status = "metadata_failed"
                 reason = "metadata fetch failed"
+            failed += 1
+            _warn_failed(video_id, "metadata", failure, args.retries)
             members.append({
                 "position": position, "video_id": video_id, "title": title,
                 "status": status, "reason": reason,
@@ -1019,8 +1040,8 @@ def main(argv=None) -> int:
                 # Leaving it absent is what makes resume correct. A video that genuinely
                 # has no captions is complete, and is written exactly as before.
                 pacing = escalate_pacing(pacing, args.max_pacing)
-                rate_limited += 1
-                _warn_rate_limited(video_id, "transcript", args.retries)
+                failed += 1
+                _warn_failed(video_id, "transcript", failure, args.retries)
                 members.append({
                     "position": position, "video_id": video_id,
                     "title": meta.get("title") or title,
@@ -1069,11 +1090,12 @@ def main(argv=None) -> int:
         write_manifest(collection_info, members, out_dir)
 
     # Exit 0 having collected nothing is a lie a CI job or a shell loop would
-    # swallow: the run produced no artifact precisely because it was blocked, and
-    # that is a retryable outcome, not a success. A run where anything landed keeps
-    # its exit 0 — failed and rate-limited members are listed in the manifest, never
-    # silently dropped, and that contract is unchanged.
-    if rate_limited and not collected:
+    # swallow. Whether the run was blocked or the video never existed does not
+    # change the outcome — it produced no artifact, and the exit code is the only
+    # part of that a caller is guaranteed to see. A run where anything landed keeps
+    # its exit 0: failed members are listed in the manifest, never silently dropped,
+    # and that contract is unchanged.
+    if failed and not collected:
         return 1
 
     return 0
