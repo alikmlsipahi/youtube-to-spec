@@ -60,6 +60,14 @@ Either argument may be empty. Neither may be `None` — callers pass `""` instea
 - Matching on `text` is **case-insensitive** and **substring-based** (the signals below are fragments
   of longer real-world messages, never whole messages). Matching on `name` is an **exact** match
   against a class name. [ASSUMPTION]
+- **Apostrophes are normalized before matching**: the typographic apostrophe `’` (U+2019) is folded to
+  the ASCII `'` (U+0027). This is not a cosmetic nicety. YouTube's own copy ships the **typographic**
+  form — the real message is `Sign in to confirm you’re not a bot` — while the signal written below,
+  like any hand-typed string, is ASCII. Without the fold, the single most important transient signal
+  in this unit would silently fail to match its own real-world text, classify as `"permanent"` by the
+  unknown rule, and produce exactly the silent data loss this entire change exists to remove. The
+  signals as documented below are ASCII and match verbatim; the fold is what makes them match reality
+  too.
 - The function is **pure**: no I/O, no sleeping, no logging, no side effects, no hidden state. The
   same `(name, text)` always yields the same answer.
 
@@ -128,8 +136,11 @@ Message fragments (either path):
   `"transient"` — the subclass and its parent classify alike.
 - **Given** `name = "TranscriptsDisabled"` and `text = ""`, **when** it runs, **then** it returns
   `"permanent"`.
-- **Given** `name = ""` and `text` containing `Sign in to confirm you're not a bot`, **when** it runs,
-  **then** it returns `"transient"`.
+- **Given** `name = ""` and `text` containing `Sign in to confirm you're not a bot` with an **ASCII**
+  apostrophe, **when** it runs, **then** it returns `"transient"`.
+- **Given** `name = ""` and `text` containing `Sign in to confirm you’re not a bot` with the
+  **typographic** apostrophe (U+2019) — the form YouTube actually sends — **when** it runs, **then** it
+  returns `"transient"`, identically to the ASCII form.
 - **Given** `name = ""` and `text` containing `Sign in to confirm your age`, **when** it runs,
   **then** it returns `"permanent"` — the two "Sign in to confirm" messages resolve **oppositely**.
 - **Given** `name = ""` and `text = "ERROR: something nobody has ever seen"`, **when** it runs,

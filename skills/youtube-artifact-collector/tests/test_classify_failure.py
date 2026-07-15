@@ -6,6 +6,10 @@ fakes needed. Failure text below is written the way the collector actually
 receives it — multi-line, prefixed yt-dlp stderr for the subprocess path and
 bare ``str(exc)`` prose for the transcript path — so every signal is matched as
 a substring inside a longer line rather than as a whole string.
+
+Apostrophes are load-bearing here: the bot-check tests deliberately carry both
+the ASCII ``'`` (U+0027) and the typographic ``’`` (U+2019) that YouTube really
+sends, as pairs differing in exactly one codepoint. Do not "tidy" either form.
 """
 
 
@@ -187,6 +191,58 @@ def test_the_two_sign_in_to_confirm_messages_resolve_oppositely(mod):
     bot_check = _ytdlp_stderr("Sign in to confirm you're not a bot. Use --cookies-from-browser")
     age_gate = _ytdlp_stderr("Sign in to confirm your age. This video may be inappropriate")
     assert mod.classify_failure("", bot_check) != mod.classify_failure("", age_gate)
+
+
+# --- Apostrophe normalization: U+2019 folds to U+0027 ------------------------
+#
+# The bot check is the highest-consequence string in the unit, and YouTube ships
+# it with a TYPOGRAPHIC apostrophe while the documented signal is ASCII. The two
+# tests below are a pair: identical text differing in exactly one codepoint, so
+# the fold is the only variable between them.
+
+def test_bot_check_with_ascii_apostrophe_is_transient(mod):
+    text = _ytdlp_stderr("Sign in to confirm you're not a bot. Use --cookies-from-browser")
+    assert "you're not a bot" in text
+    assert mod.classify_failure("", text) == "transient"
+
+
+def test_bot_check_with_typographic_apostrophe_is_transient(mod):
+    # U+2019 — the form YouTube actually sends. Unfolded, this misses the ASCII
+    # signal, falls through to the unknown rule, and is silently lost as permanent.
+    text = _ytdlp_stderr("Sign in to confirm you’re not a bot. Use --cookies-from-browser")
+    assert "you’re not a bot" in text
+    assert mod.classify_failure("", text) == "transient"
+
+
+def test_both_apostrophe_forms_of_the_bot_check_classify_identically(mod):
+    ascii_form = _ytdlp_stderr("Sign in to confirm you're not a bot")
+    typographic_form = _ytdlp_stderr("Sign in to confirm you’re not a bot")
+    assert ascii_form != typographic_form
+    assert mod.classify_failure("", ascii_form) == mod.classify_failure("", typographic_form)
+
+
+def test_typographic_bot_check_from_transcript_path_is_transient(mod):
+    # Bare ``str(exc)`` with no yt-dlp prefix; unrecognized name so only text decides.
+    text = (
+        "Could not retrieve a transcript for the video dQw4w9WgXcQ!\n"
+        "This is most likely caused by: Sign in to confirm you’re not a bot"
+    )
+    assert mod.classify_failure("SomeUncharacterizedError", text) == "transient"
+
+
+def test_mixed_case_bot_check_with_typographic_apostrophe_is_transient(mod):
+    # The fold composes with case-insensitive matching rather than replacing it.
+    text = _ytdlp_stderr("sIgN In To CoNfIrM YoU’rE NoT A BoT")
+    assert mod.classify_failure("", text) == "transient"
+
+
+def test_the_fold_does_not_disturb_the_prefix_trap_for_the_age_gate(mod):
+    # Normalizing apostrophes must not widen the match to the shared prefix: the
+    # typographic bot check and the age gate still resolve oppositely.
+    typographic_bot_check = _ytdlp_stderr("Sign in to confirm you’re not a bot")
+    age_gate = _ytdlp_stderr("Sign in to confirm your age. This video may be inappropriate")
+    assert mod.classify_failure("", typographic_bot_check) == "transient"
+    assert mod.classify_failure("", age_gate) == "permanent"
 
 
 # --- Unknown failures ---------------------------------------------------------
