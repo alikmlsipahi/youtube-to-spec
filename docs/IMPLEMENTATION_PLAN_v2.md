@@ -340,6 +340,8 @@ Each row = one requirement with a stable id used by the checklist. **Pure/offlin
 | T-S2-05 | composite-key uniqueness | dedup on `(requirement_id, source_video_id)`; same req-id across two videos is **allowed** |
 | T-S2-06 | env key loading | missing `OPENAI_API_KEY` → clear error, no crash, no secret leak |
 | T-S2-07 | input resolution | artifact path vs collection folder → iterates manifest members `status==ok`; defensive `schema_version` read |
+| T-S2-08 | `write_outputs` | **[v2.1]** `<basename>.requirements.{json,md}` where `<basename>` **mirrors the source artifact's stem — never rebuilt from `video.id`**; `out_dir` overrides, else alongside the source; `no_save` prints and writes nothing |
+| T-S2-09 | `normalize_trace_indexes` | every requirement's `trace.segment_index` addresses a real segment; an LLM's start-second value is remapped only when unambiguous, otherwise fails loudly |
 
 *Integration tier (`@pytest.mark.integration`, network, opt-in):*
 | id | scenario |
