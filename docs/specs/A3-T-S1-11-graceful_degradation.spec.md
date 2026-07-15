@@ -154,9 +154,15 @@ being silently dropped.
 
 ## NEEDS CLARIFICATION
 
-- [NEEDS CLARIFICATION] Whether a return-code-0-but-empty-stdout case should be `"permanent"` or
-  `"transient"`. This spec picks `"permanent"` on the reasoning that a clean exit is not a throttle,
-  but a truncated response from an overloaded upstream could in principle present this way.
+- [RESOLVED 2026-07-15] **Return code 0 with empty stdout is `"permanent"`, exactly like return code 0
+  with unparseable stdout** — the two are one case, not two, and the Edge cases section above decides
+  it. This item previously both decided the case and reopened it, which is a contradiction rather than
+  an open question; a spec cannot ask the implementer to treat a case as `"permanent"` and
+  simultaneously tell them it is undecided. Resolved toward `"permanent"` on the stated reasoning: a
+  clean exit is not a throttle, and re-running a process that exited `0` is not expected to produce
+  different bytes. The counter-case (a truncated response from an overloaded upstream presenting this
+  way) is real but unobserved; if it ever shows up, it will show up as a `metadata_failed` row for a
+  video that plainly exists, which is a legible symptom to reopen this on.
 - [NEEDS CLARIFICATION] The precise yt-dlp argument vector (flag order, extra flags) remains an
   implementer detail and is **not** asserted by this unit — with one constraint that *is* contractual
   as of v2.3: stderr must be captured and must not be suppressed, since it is now the sole evidence

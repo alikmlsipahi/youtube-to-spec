@@ -117,6 +117,12 @@ Further contract points:
 - [ASSUMPTION] The temp file's exact naming scheme is an **implementer detail** and is not asserted by
   this unit's contract, with two constraints that *are* contractual: it lives in the same directory as
   `path`, and it is not visible to a `*.json` glob of that directory.
+- [ASSUMPTION] The durability calls are reached **through the `os` module** (`os.replace(...)`,
+  `os.fsync(...)`) rather than bound directly into the module's namespace (`from os import replace`).
+  This is stated as contract, not style: it is what makes the two steps observable at a seam, in the
+  same way that `fetch_metadata`'s contract depends on `subprocess.run` being reachable as
+  `subprocess.run`. An implementation that binds them directly is functionally identical but hides the
+  seam.
 - [ASSUMPTION] Directory-level `fsync` (syncing the parent directory entry after the rename, which is
   what makes the *rename itself* durable across a power loss, as opposed to the file's *contents*) is
   **out of scope**. The failure this unit is specified against is a process crash or kill, against

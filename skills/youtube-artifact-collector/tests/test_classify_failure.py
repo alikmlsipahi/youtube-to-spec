@@ -1,0 +1,296 @@
+"""T-S1-16 — classify_failure.
+Spec: docs/specs/A8-T-S1-16-classify_failure.spec.md
+
+Pure computation over two plain strings: no network, no exception classes, no
+fakes needed. Failure text below is written the way the collector actually
+receives it — multi-line, prefixed yt-dlp stderr for the subprocess path and
+bare ``str(exc)`` prose for the transcript path — so every signal is matched as
+a substring inside a longer line rather than as a whole string.
+"""
+
+
+def _ytdlp_stderr(message, video_id="dQw4w9WgXcQ"):
+    """Wrap ``message`` in a realistic multi-line yt-dlp stderr block."""
+    return (
+        "WARNING: [youtube] Falling back to generic n function search\n"
+        f"ERROR: [youtube] {video_id}: {message}\n"
+        "         Use --ignore-errors to continue past this video\n"
+    )
+
+
+# --- Transient signals: failure class names (transcript path) ----------------
+
+def test_request_blocked_name_is_transient(mod):
+    assert mod.classify_failure("RequestBlocked", "") == "transient"
+
+
+def test_ip_blocked_name_is_transient_even_though_it_is_a_subclass_of_request_blocked(mod):
+    # The unit only ever sees the exact leaf name, so IpBlocked must be listed
+    # independently of its parent — a string comparison has no class hierarchy.
+    assert mod.classify_failure("IpBlocked", "") == "transient"
+
+
+def test_youtube_request_failed_name_is_transient(mod):
+    assert mod.classify_failure("YouTubeRequestFailed", "") == "transient"
+
+
+# --- Transient signals: message fragments ------------------------------------
+
+def test_http_429_in_ytdlp_stderr_is_transient(mod):
+    text = _ytdlp_stderr("Unable to download API page: HTTP Error 429 (caused by <HTTPError>)")
+    assert mod.classify_failure("", text) == "transient"
+
+
+def test_too_many_requests_phrase_is_transient(mod):
+    text = _ytdlp_stderr("Unable to download webpage: Too Many Requests")
+    assert mod.classify_failure("", text) == "transient"
+
+
+def test_bot_check_message_is_transient(mod):
+    text = _ytdlp_stderr(
+        "Sign in to confirm you're not a bot. Use --cookies-from-browser to pass browser cookies"
+    )
+    assert mod.classify_failure("", text) == "transient"
+
+
+def test_bot_check_message_from_transcript_path_is_transient(mod):
+    # Transcript-path text (bare ``str(exc)``, no yt-dlp prefix). The name here is
+    # deliberately unrecognized so the verdict can only come from the text.
+    text = (
+        "Could not retrieve a transcript for the video dQw4w9WgXcQ!\n"
+        "This is most likely caused by: Sign in to confirm you're not a bot"
+    )
+    assert mod.classify_failure("SomeUncharacterizedError", text) == "transient"
+
+
+def test_http_500_in_ytdlp_stderr_is_transient(mod):
+    text = _ytdlp_stderr("Unable to download webpage: HTTP Error 500: Internal Server Error")
+    assert mod.classify_failure("", text) == "transient"
+
+
+def test_http_502_in_ytdlp_stderr_is_transient(mod):
+    text = _ytdlp_stderr("Unable to download webpage: HTTP Error 502: Bad Gateway")
+    assert mod.classify_failure("", text) == "transient"
+
+
+def test_http_503_in_ytdlp_stderr_is_transient(mod):
+    text = _ytdlp_stderr("Unable to download webpage: HTTP Error 503: Service Unavailable")
+    assert mod.classify_failure("", text) == "transient"
+
+
+def test_timed_out_message_is_transient(mod):
+    text = _ytdlp_stderr("Unable to download webpage: The read operation timed out")
+    assert mod.classify_failure("", text) == "transient"
+
+
+def test_timeout_message_is_transient(mod):
+    text = "HTTPSConnectionPool(host='www.youtube.com', port=443): Read timeout (read=20.0)"
+    assert mod.classify_failure("", text) == "transient"
+
+
+def test_connection_reset_message_is_transient(mod):
+    text = _ytdlp_stderr("Unable to download webpage: <urlopen error [Errno 54] Connection reset by peer>")
+    assert mod.classify_failure("", text) == "transient"
+
+
+def test_connection_refused_message_is_transient(mod):
+    text = _ytdlp_stderr("Unable to download webpage: <urlopen error [Errno 61] Connection refused>")
+    assert mod.classify_failure("", text) == "transient"
+
+
+def test_dns_resolution_failure_message_is_transient(mod):
+    text = _ytdlp_stderr(
+        "Unable to download webpage: <urlopen error [Errno -3] Temporary failure in name resolution>"
+    )
+    assert mod.classify_failure("", text) == "transient"
+
+
+# --- Permanent signals: failure class names (transcript path) ----------------
+
+def test_no_transcript_found_name_is_permanent(mod):
+    assert mod.classify_failure("NoTranscriptFound", "") == "permanent"
+
+
+def test_transcripts_disabled_name_is_permanent(mod):
+    assert mod.classify_failure("TranscriptsDisabled", "") == "permanent"
+
+
+def test_video_unavailable_name_is_permanent(mod):
+    assert mod.classify_failure("VideoUnavailable", "") == "permanent"
+
+
+def test_video_unplayable_name_is_permanent(mod):
+    assert mod.classify_failure("VideoUnplayable", "") == "permanent"
+
+
+def test_age_restricted_name_is_permanent(mod):
+    assert mod.classify_failure("AgeRestricted", "") == "permanent"
+
+
+# --- Permanent signals: message fragments ------------------------------------
+
+def test_private_video_in_ytdlp_stderr_is_permanent(mod):
+    text = _ytdlp_stderr("Private video. Sign in if you've been granted access to this video")
+    assert mod.classify_failure("", text) == "permanent"
+
+
+def test_this_video_is_private_phrase_is_permanent(mod):
+    text = "Could not retrieve a transcript for the video dQw4w9WgXcQ! This video is private."
+    assert mod.classify_failure("", text) == "permanent"
+
+
+def test_video_unavailable_in_ytdlp_stderr_is_permanent(mod):
+    text = _ytdlp_stderr("Video unavailable")
+    assert mod.classify_failure("", text) == "permanent"
+
+
+def test_this_video_is_not_available_phrase_is_permanent(mod):
+    text = _ytdlp_stderr("This video is not available in your country")
+    assert mod.classify_failure("", text) == "permanent"
+
+
+def test_removed_by_the_uploader_message_is_permanent(mod):
+    text = _ytdlp_stderr("This video has been removed by the uploader")
+    assert mod.classify_failure("", text) == "permanent"
+
+
+def test_members_only_message_is_permanent(mod):
+    text = _ytdlp_stderr("This video is available to this channel's members-only tier")
+    assert mod.classify_failure("", text) == "permanent"
+
+
+def test_join_this_channel_message_is_permanent(mod):
+    text = _ytdlp_stderr("Join this channel to get access to perks")
+    assert mod.classify_failure("", text) == "permanent"
+
+
+def test_age_gate_message_is_permanent(mod):
+    text = _ytdlp_stderr("Sign in to confirm your age. This video may be inappropriate for some users")
+    assert mod.classify_failure("", text) == "permanent"
+
+
+# --- The shared "Sign in to confirm" prefix: opposite verdicts ---------------
+
+def test_bot_check_and_age_gate_share_a_prefix_but_the_bot_check_tail_is_transient(mod):
+    bot_check = _ytdlp_stderr("Sign in to confirm you're not a bot")
+    assert mod.classify_failure("", bot_check) == "transient"
+
+
+def test_bot_check_and_age_gate_share_a_prefix_but_the_age_gate_tail_is_permanent(mod):
+    age_gate = _ytdlp_stderr("Sign in to confirm your age")
+    assert mod.classify_failure("", age_gate) == "permanent"
+
+
+def test_the_two_sign_in_to_confirm_messages_resolve_oppositely(mod):
+    # Matching the shared "Sign in to confirm" prefix alone would collapse these
+    # two into one verdict; the distinguishing tail is what must decide.
+    bot_check = _ytdlp_stderr("Sign in to confirm you're not a bot. Use --cookies-from-browser")
+    age_gate = _ytdlp_stderr("Sign in to confirm your age. This video may be inappropriate")
+    assert mod.classify_failure("", bot_check) != mod.classify_failure("", age_gate)
+
+
+# --- Unknown failures ---------------------------------------------------------
+
+def test_unrecognized_text_is_permanent(mod):
+    assert mod.classify_failure("", "ERROR: something nobody has ever seen") == "permanent"
+
+
+def test_empty_name_and_empty_text_is_permanent(mod):
+    assert mod.classify_failure("", "") == "permanent"
+
+
+def test_unrecognized_class_name_with_empty_text_is_permanent(mod):
+    assert mod.classify_failure("SomeUncharacterizedError", "") == "permanent"
+
+
+def test_unrecognized_class_name_with_unrecognized_text_is_permanent(mod):
+    text = _ytdlp_stderr("Unable to extract player response; please report this issue")
+    assert mod.classify_failure("CouldNotExtract", text) == "permanent"
+
+
+# --- Case-insensitive substring matching --------------------------------------
+
+def test_lowercase_and_documented_casing_of_a_transient_signal_agree(mod):
+    documented = _ytdlp_stderr("Unable to download webpage: Too Many Requests")
+    lowercased = documented.lower()
+    assert mod.classify_failure("", documented) == "transient"
+    assert mod.classify_failure("", lowercased) == "transient"
+
+
+def test_uppercase_transient_signal_is_still_transient(mod):
+    text = _ytdlp_stderr("UNABLE TO DOWNLOAD WEBPAGE: TOO MANY REQUESTS").upper()
+    assert mod.classify_failure("", text) == "transient"
+
+
+def test_mixed_case_bot_check_message_is_transient(mod):
+    text = _ytdlp_stderr("sIgN In To CoNfIrM YoU'rE NoT A BoT")
+    assert mod.classify_failure("", text) == "transient"
+
+
+def test_lowercase_and_documented_casing_of_a_permanent_signal_agree(mod):
+    documented = _ytdlp_stderr("Private video. Sign in if you've been granted access")
+    lowercased = documented.lower()
+    assert mod.classify_failure("", documented) == "permanent"
+    assert mod.classify_failure("", lowercased) == "permanent"
+
+
+def test_signal_is_matched_inside_a_longer_line_not_as_the_whole_string(mod):
+    text = _ytdlp_stderr("Unable to download API page: HTTP Error 429 — retry later please")
+    assert text.strip() != "HTTP Error 429"
+    assert mod.classify_failure("", text) == "transient"
+
+
+# --- Repetition ---------------------------------------------------------------
+
+def test_transient_signal_appearing_twice_still_yields_one_transient_answer(mod):
+    text = (
+        "ERROR: [youtube] dQw4w9WgXcQ: Unable to download API page: HTTP Error 429\n"
+        "ERROR: [youtube] dQw4w9WgXcQ: Unable to download webpage: HTTP Error 429\n"
+    )
+    assert mod.classify_failure("", text) == "transient"
+
+
+# --- Precedence: transient wins when name and text disagree -------------------
+
+def test_transient_name_with_permanent_looking_text_is_transient(mod):
+    text = "Could not retrieve a transcript for the video dQw4w9WgXcQ! This video is private."
+    assert mod.classify_failure("IpBlocked", text) == "transient"
+
+
+def test_permanent_name_with_transient_looking_text_is_transient(mod):
+    text = "Could not retrieve a transcript for the video dQw4w9WgXcQ! HTTP Error 429"
+    assert mod.classify_failure("TranscriptsDisabled", text) == "transient"
+
+
+def test_text_carrying_both_a_transient_and_a_permanent_signal_is_transient(mod):
+    text = (
+        "ERROR: [youtube] dQw4w9WgXcQ: Video unavailable\n"
+        "ERROR: [youtube] dQw4w9WgXcQ: Unable to download webpage: HTTP Error 429\n"
+    )
+    assert mod.classify_failure("", text) == "transient"
+
+
+# --- Purity and return vocabulary ---------------------------------------------
+
+def test_same_inputs_always_yield_the_same_answer(mod):
+    text = _ytdlp_stderr("Unable to download webpage: HTTP Error 503: Service Unavailable")
+    first = mod.classify_failure("", text)
+    second = mod.classify_failure("", text)
+    assert first == second == "transient"
+
+
+def test_return_value_is_only_ever_one_of_the_two_verdict_strings(mod):
+    samples = [
+        ("", ""),
+        ("", _ytdlp_stderr("Video unavailable")),
+        ("", _ytdlp_stderr("Sign in to confirm you're not a bot")),
+        ("IpBlocked", ""),
+        ("RequestBlocked", ""),
+        ("YouTubeRequestFailed", ""),
+        ("NoTranscriptFound", ""),
+        ("VideoUnplayable", ""),
+        ("AgeRestricted", ""),
+        ("TotallyUnknownError", "ERROR: something nobody has ever seen"),
+    ]
+    for name, text in samples:
+        assert mod.classify_failure(name, text) in ("transient", "permanent")

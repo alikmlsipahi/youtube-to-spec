@@ -1,13 +1,24 @@
 """T-S1-15 — enumerate_playlist.
-Spec: docs/specs/A6-T-S1-15-enumerate_playlist.spec.md
+Spec: docs/specs/A6-T-S1-15-enumerate_playlist.spec.md (v2.3 — RE-SIGNED)
 
 Offline: the ``yt-dlp --flat-playlist --dump-single-json`` subprocess is mocked via the
 stdlib ``subprocess.run`` so no network is touched. Behavior is pinned on the mocked
 return code / stdout / stderr only — never on the exact yt-dlp argument vector, which the
 spec leaves to the implementer (§Assumptions).
 
+v2.3: the unit returns ``(playlist, failure)`` — a 2-tuple in which exactly one half is
+ever non-``None``, ``failure`` being ``None`` / ``"transient"`` / ``"permanent"``. The
+order-preservation, null-title and hidden-unavailable rules are unchanged by the re-sign.
+
+Classification is *delegated* to ``classify_failure`` (T-S1-16), so this file uses one
+realistic representative stderr per class and does not enumerate signal lists, casing, or
+the "Sign in to confirm" prefix trap — those belong to T-S1-16's own tier. Likewise the
+hidden-unavailable parse rules belong to ``parse_hidden_unavailable`` (T-S1-10) and are not
+re-pinned here. Retry itself lives in the orchestration loop: this unit is a single
+subprocess call that reports a verdict.
+
 Deliberately untested (spec §NEEDS CLARIFICATION): empty playlist, missing playlist-level
-keys, an entry lacking an id, a non-playlist URL, and whether --sleep-requests applies here.
+keys, an entry lacking an id, and a non-playlist URL.
 """
 
 import json
@@ -17,6 +28,10 @@ from types import SimpleNamespace
 import pytest
 
 PLAYLIST_URL = "https://www.youtube.com/playlist?list=PLf2m1LSmwQKKY0examp"
+
+# The single non-zero return code used by BOTH classification tests below: the verdict is
+# decided on stderr alone, never on the code.
+FAILING_RC = 1
 
 # yt-dlp's hidden-unavailable WARNING, embedded among unrelated stderr lines.
 # Wording per the T-S1-10 reuse contract: the count immediately precedes "unavailable videos".
@@ -31,11 +46,39 @@ STDERR_NO_WARNING = (
     "WARNING: unrelated deprecation notice\n"
 )
 
+# One realistic representative stderr per failure class. Which fragments map to which
+# verdict is T-S1-16's contract, not this unit's — these are only "evidence captured and
+# passed on".
+STDERR_PRIVATE_PLAYLIST = (
+    "[youtube:tab] Extracting URL: https://www.youtube.com/playlist?list=PLf2m1LSmwQKKY0examp\n"
+    "[youtube:tab] PLf2m1LSmwQKKY0examp: Downloading webpage\n"
+    "ERROR: [youtube:tab] PLf2m1LSmwQKKY0examp: This playlist is private. "
+    "Sign in if you've been granted access to this playlist\n"
+)
+
+STDERR_RATE_LIMITED = (
+    "[youtube:tab] Extracting URL: https://www.youtube.com/playlist?list=PLf2m1LSmwQKKY0examp\n"
+    "ERROR: [youtube:tab] PLf2m1LSmwQKKY0examp: Unable to download API page: "
+    "HTTP Error 429: Too Many Requests (caused by <HTTPError 429: Too Many Requests>)\n"
+)
+
 
 def _fake_run(returncode, stdout="", stderr=""):
     def _run(*args, **kwargs):
         return SimpleNamespace(returncode=returncode, stdout=stdout, stderr=stderr)
 
+    return _run
+
+
+def _recording_run(returncode, stdout="", stderr=""):
+    """Like ``_fake_run``, but keeps the kwargs it was called with on ``.calls``."""
+    calls = []
+
+    def _run(*args, **kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(returncode=returncode, stdout=stdout, stderr=stderr)
+
+    _run.calls = calls
     return _run
 
 
@@ -69,70 +112,154 @@ MIXED_ENTRIES = [
 ]
 
 
-# --- failure paths: always None, never raise --------------------------------------
+# --- failure paths: the same return code, classified on stderr alone ----------------
+
+
+def test_nonzero_exit_with_private_playlist_stderr_is_permanent(mod, monkeypatch):
+    """A playlist that will never come back: no retry could help."""
+    monkeypatch.setattr(
+        subprocess, "run", _fake_run(FAILING_RC, stdout="", stderr=STDERR_PRIVATE_PLAYLIST)
+    )
+    assert mod.enumerate_playlist(PLAYLIST_URL) == (None, "permanent")
+
+
+def test_same_nonzero_exit_with_rate_limit_stderr_is_transient_not_permanent(mod, monkeypatch):
+    """Same FAILING_RC as the private-playlist test above, opposite verdict.
+
+    The return code carries no information here — the classification comes from stderr
+    alone. This is the distinction the v2.3 re-sign exists to make: a bare None could not
+    tell the caller that this playlist is worth another attempt.
+    """
+    monkeypatch.setattr(
+        subprocess, "run", _fake_run(FAILING_RC, stdout="", stderr=STDERR_RATE_LIMITED)
+    )
+    assert mod.enumerate_playlist(PLAYLIST_URL) == (None, "transient")
 
 
 @pytest.mark.parametrize("returncode", [1, 2])
-def test_nonzero_exit_returns_none(mod, monkeypatch, returncode):
-    monkeypatch.setattr(
-        subprocess, "run", _fake_run(returncode, stdout="", stderr="ERROR: playlist is private")
-    )
-    assert mod.enumerate_playlist(PLAYLIST_URL) is None
+def test_nonzero_exit_with_empty_stderr_is_permanent(mod, monkeypatch, returncode):
+    """No evidence at all → the classifier's unknown rule, for any non-zero code."""
+    monkeypatch.setattr(subprocess, "run", _fake_run(returncode, stdout="", stderr=""))
+    assert mod.enumerate_playlist(PLAYLIST_URL) == (None, "permanent")
 
 
-def test_unparseable_stdout_returns_none(mod, monkeypatch):
+# --- failure paths: a clean exit that produced nothing usable ----------------------
+
+
+def test_unparseable_stdout_is_permanent(mod, monkeypatch):
     """Return code 0 but garbage on stdout must not propagate a parse exception."""
     monkeypatch.setattr(subprocess, "run", _fake_run(0, stdout="not json at all {", stderr=""))
-    assert mod.enumerate_playlist(PLAYLIST_URL) is None
+    assert mod.enumerate_playlist(PLAYLIST_URL) == (None, "permanent")
 
 
-def test_empty_stdout_returns_none(mod, monkeypatch):
+def test_empty_stdout_is_permanent(mod, monkeypatch):
+    """A clean exit emitting nothing is not a throttle."""
     monkeypatch.setattr(subprocess, "run", _fake_run(0, stdout="", stderr=""))
-    assert mod.enumerate_playlist(PLAYLIST_URL) is None
+    assert mod.enumerate_playlist(PLAYLIST_URL) == (None, "permanent")
 
 
-def test_missing_yt_dlp_executable_returns_none(mod, monkeypatch):
-    """yt-dlp not installed → FileNotFoundError → graceful None, not an exception."""
+# --- failure paths: the subprocess itself raised, and nothing escapes ---------------
+
+
+def test_missing_yt_dlp_executable_is_permanent(mod, monkeypatch):
+    """yt-dlp not installed → graceful verdict, not an exception. No retry installs it."""
 
     def _run(*args, **kwargs):
         raise FileNotFoundError(2, "No such file or directory: 'yt-dlp'")
 
     monkeypatch.setattr(subprocess, "run", _run)
-    assert mod.enumerate_playlist(PLAYLIST_URL) is None
+    assert mod.enumerate_playlist(PLAYLIST_URL) == (None, "permanent")
 
 
-def test_subprocess_error_returns_none(mod, monkeypatch):
-    """Any other subprocess error degrades to None as well."""
+def test_timed_out_call_is_transient(mod, monkeypatch):
+    """An expired timeout is worth another attempt — and must not surface as an exception."""
+
+    def _run(*args, **kwargs):
+        raise subprocess.TimeoutExpired(
+            cmd=["yt-dlp", "--flat-playlist", "--dump-single-json", PLAYLIST_URL],
+            timeout=120.0,
+        )
+
+    monkeypatch.setattr(subprocess, "run", _run)
+    assert mod.enumerate_playlist(PLAYLIST_URL, timeout=120.0) == (None, "transient")
+
+
+def test_other_subprocess_error_is_permanent(mod, monkeypatch):
+    """Any other subprocess error degrades to a verdict as well, never to an exception."""
 
     def _run(*args, **kwargs):
         raise subprocess.SubprocessError("subprocess blew up")
 
     monkeypatch.setattr(subprocess, "run", _run)
-    assert mod.enumerate_playlist(PLAYLIST_URL) is None
+    assert mod.enumerate_playlist(PLAYLIST_URL) == (None, "permanent")
 
 
-# --- success path: playlist identity ----------------------------------------------
+# --- the timeout parameter is additive ---------------------------------------------
+
+
+def test_omitting_timeout_imposes_no_time_limit(mod, monkeypatch):
+    """Default is None — the pre-v2.3 unbounded behavior stays reachable."""
+    run = _recording_run(0, stdout=json.dumps(_playlist_doc(ORDERED_ENTRIES)), stderr="")
+    monkeypatch.setattr(subprocess, "run", run)
+
+    mod.enumerate_playlist(PLAYLIST_URL)
+
+    assert run.calls[0].get("timeout") is None
+
+
+def test_timeout_bounds_the_subprocess_call(mod, monkeypatch):
+    run = _recording_run(0, stdout=json.dumps(_playlist_doc(ORDERED_ENTRIES)), stderr="")
+    monkeypatch.setattr(subprocess, "run", run)
+
+    mod.enumerate_playlist(PLAYLIST_URL, timeout=5.0)
+
+    assert run.calls[0].get("timeout") == 5.0
+
+
+def test_timeout_is_keyword_only(mod, monkeypatch):
+    """An existing positional call site keeps compiling; timeout cannot be passed by position."""
+    run = _recording_run(0, stdout=json.dumps(_playlist_doc(ORDERED_ENTRIES)), stderr="")
+    monkeypatch.setattr(subprocess, "run", run)
+
+    with pytest.raises(TypeError):
+        mod.enumerate_playlist(PLAYLIST_URL, 5.0)
+
+
+# --- success path: playlist identity, paired with no failure ------------------------
+
+
+def test_success_returns_a_two_tuple_with_no_failure(mod, monkeypatch):
+    """Exactly one half is ever non-None."""
+    doc = _playlist_doc(ORDERED_ENTRIES)
+    monkeypatch.setattr(subprocess, "run", _fake_run(0, stdout=json.dumps(doc), stderr=""))
+
+    result = mod.enumerate_playlist(PLAYLIST_URL)
+
+    assert isinstance(result, tuple)
+    assert len(result) == 2
+    assert isinstance(result[0], dict)
+    assert result[1] is None
 
 
 def test_success_returns_playlist_identity(mod, monkeypatch):
     doc = _playlist_doc(ORDERED_ENTRIES)
     monkeypatch.setattr(subprocess, "run", _fake_run(0, stdout=json.dumps(doc), stderr=""))
 
-    result = mod.enumerate_playlist(PLAYLIST_URL)
+    playlist, failure = mod.enumerate_playlist(PLAYLIST_URL)
 
-    assert isinstance(result, dict)
-    assert result["id"] == "PLf2m1LSmwQKKY0examp"
-    assert result["title"] == "Claude Code Deep Dive"
-    assert result["uploader"] == "Anthropic"
+    assert failure is None
+    assert playlist["id"] == "PLf2m1LSmwQKKY0examp"
+    assert playlist["title"] == "Claude Code Deep Dive"
+    assert playlist["uploader"] == "Anthropic"
 
 
 def test_returned_dict_has_exactly_the_contract_keys(mod, monkeypatch):
     doc = _playlist_doc(ORDERED_ENTRIES)
     monkeypatch.setattr(subprocess, "run", _fake_run(0, stdout=json.dumps(doc), stderr=""))
 
-    result = mod.enumerate_playlist(PLAYLIST_URL)
+    playlist, _failure = mod.enumerate_playlist(PLAYLIST_URL)
 
-    assert set(result) == {"id", "title", "uploader", "entries", "hidden_unavailable_count"}
+    assert set(playlist) == {"id", "title", "uploader", "entries", "hidden_unavailable_count"}
 
 
 def test_entry_records_carry_the_thin_flat_listing_fields(mod, monkeypatch):
@@ -140,9 +267,9 @@ def test_entry_records_carry_the_thin_flat_listing_fields(mod, monkeypatch):
     doc = _playlist_doc(ORDERED_ENTRIES)
     monkeypatch.setattr(subprocess, "run", _fake_run(0, stdout=json.dumps(doc), stderr=""))
 
-    result = mod.enumerate_playlist(PLAYLIST_URL)
+    playlist, _failure = mod.enumerate_playlist(PLAYLIST_URL)
 
-    for record in result["entries"]:
+    for record in playlist["entries"]:
         assert set(record) == {"id", "title"}
 
 
@@ -154,14 +281,14 @@ def test_entries_preserve_playlist_order(mod, monkeypatch):
     doc = _playlist_doc(ORDERED_ENTRIES)
     monkeypatch.setattr(subprocess, "run", _fake_run(0, stdout=json.dumps(doc), stderr=""))
 
-    result = mod.enumerate_playlist(PLAYLIST_URL)
+    playlist, _failure = mod.enumerate_playlist(PLAYLIST_URL)
 
-    assert [e["id"] for e in result["entries"]] == [
+    assert [e["id"] for e in playlist["entries"]] == [
         "zAbC1234567",
         "mNoP7654321",
         "aXyZ0011223",
     ]
-    assert [e["title"] for e in result["entries"]] == [
+    assert [e["title"] for e in playlist["entries"]] == [
         "Zebra: getting started",
         "Alpha: the middle one",
         "Mango: the last one",
@@ -178,9 +305,9 @@ def test_repeated_member_is_not_deduplicated(mod, monkeypatch):
     doc = _playlist_doc(twice)
     monkeypatch.setattr(subprocess, "run", _fake_run(0, stdout=json.dumps(doc), stderr=""))
 
-    result = mod.enumerate_playlist(PLAYLIST_URL)
+    playlist, _failure = mod.enumerate_playlist(PLAYLIST_URL)
 
-    assert [e["id"] for e in result["entries"]] == [
+    assert [e["id"] for e in playlist["entries"]] == [
         "repeatVid01",
         "otherVid002",
         "repeatVid01",
@@ -194,10 +321,10 @@ def test_null_title_members_stay_in_entries_at_their_positions(mod, monkeypatch)
     doc = _playlist_doc(MIXED_ENTRIES)
     monkeypatch.setattr(subprocess, "run", _fake_run(0, stdout=json.dumps(doc), stderr=""))
 
-    result = mod.enumerate_playlist(PLAYLIST_URL)
+    playlist, _failure = mod.enumerate_playlist(PLAYLIST_URL)
 
-    assert len(result["entries"]) == 4
-    assert [e["id"] for e in result["entries"]] == [
+    assert len(playlist["entries"]) == 4
+    assert [e["id"] for e in playlist["entries"]] == [
         "okVideo0001",
         "privVideo02",
         "okVideo0003",
@@ -210,10 +337,10 @@ def test_null_title_is_preserved_not_repaired(mod, monkeypatch):
     doc = _playlist_doc(MIXED_ENTRIES)
     monkeypatch.setattr(subprocess, "run", _fake_run(0, stdout=json.dumps(doc), stderr=""))
 
-    result = mod.enumerate_playlist(PLAYLIST_URL)
+    playlist, _failure = mod.enumerate_playlist(PLAYLIST_URL)
 
-    assert result["entries"][1]["title"] is None
-    assert result["entries"][3]["title"] is None
+    assert playlist["entries"][1]["title"] is None
+    assert playlist["entries"][3]["title"] is None
 
 
 # --- success path: hidden_unavailable_count ---------------------------------------
@@ -225,19 +352,19 @@ def test_hidden_unavailable_count_is_zero_without_the_warning(mod, monkeypatch):
         subprocess, "run", _fake_run(0, stdout=json.dumps(doc), stderr=STDERR_NO_WARNING)
     )
 
-    result = mod.enumerate_playlist(PLAYLIST_URL)
+    playlist, _failure = mod.enumerate_playlist(PLAYLIST_URL)
 
-    assert result["hidden_unavailable_count"] == 0
-    assert isinstance(result["hidden_unavailable_count"], int)
+    assert playlist["hidden_unavailable_count"] == 0
+    assert isinstance(playlist["hidden_unavailable_count"], int)
 
 
 def test_hidden_unavailable_count_is_zero_for_empty_stderr(mod, monkeypatch):
     doc = _playlist_doc(ORDERED_ENTRIES)
     monkeypatch.setattr(subprocess, "run", _fake_run(0, stdout=json.dumps(doc), stderr=""))
 
-    result = mod.enumerate_playlist(PLAYLIST_URL)
+    playlist, _failure = mod.enumerate_playlist(PLAYLIST_URL)
 
-    assert result["hidden_unavailable_count"] == 0
+    assert playlist["hidden_unavailable_count"] == 0
 
 
 def test_warning_and_complete_listing_coexist(mod, monkeypatch):
@@ -248,11 +375,12 @@ def test_warning_and_complete_listing_coexist(mod, monkeypatch):
         subprocess, "run", _fake_run(0, stdout=json.dumps(doc), stderr=STDERR_WITH_WARNING)
     )
 
-    result = mod.enumerate_playlist(PLAYLIST_URL)
+    playlist, failure = mod.enumerate_playlist(PLAYLIST_URL)
 
-    assert result["hidden_unavailable_count"] == 5
-    assert len(result["entries"]) == len(MIXED_ENTRIES)
-    assert [e["id"] for e in result["entries"]] == [
+    assert failure is None
+    assert playlist["hidden_unavailable_count"] == 5
+    assert len(playlist["entries"]) == len(MIXED_ENTRIES)
+    assert [e["id"] for e in playlist["entries"]] == [
         "okVideo0001",
         "privVideo02",
         "okVideo0003",
