@@ -155,7 +155,13 @@ process result with a chosen return code, stdout, and stderr, so no network is t
 - **Given** `subprocess.run` is mocked to raise as though the call had timed out, **when** it runs,
   **then** it returns `(None, "transient")` and does not raise.
 - **Given** `subprocess.run` is mocked to raise as though the yt-dlp executable were missing, **when**
-  it runs, **then** it returns `(None, "permanent")` and does not raise.
+  it runs, **then** it returns `(None, "unknown")` and does not raise. **[v2.5]**
+- **Given** `subprocess.run` is mocked to return a **non-zero** return code with **empty** stderr,
+  **when** it runs, **then** it returns `(None, "unknown")` — nothing was offered to recognize. **[v2.5]**
+- **Given** `subprocess.run` is mocked to return a **non-zero** return code with stderr matching no
+  known signal, **when** it runs, **then** it returns `(None, "unknown")` — **not** `"permanent"`.
+  The drift case: the same return code as the private-playlist and rate-limit scenarios, resolved a
+  third way on stderr alone. **[v2.5]**
 - **Given** `subprocess.run` is mocked to return return code `0` with stdout being a valid flat-playlist
   JSON document, **when** `enumerate_playlist` runs, **then** it returns a dict carrying the playlist's
   `id`, `title`, and `uploader` drawn from that document, paired with `None`.
