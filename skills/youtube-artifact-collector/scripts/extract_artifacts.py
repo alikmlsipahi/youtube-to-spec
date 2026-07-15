@@ -803,6 +803,22 @@ def write_manifest(collection: dict, members: list[dict], out_dir: Path) -> None
     )
 
 
+def _warn_rate_limited(video_id: str, stage: str, retries: int) -> None:
+    """Report on stderr that a video was dropped to a rate limit.
+
+    The manifest records this too, but only a collection has one — a single video
+    would otherwise be dropped in silence, since the artifact is deliberately not
+    written. stderr is the user's face where the manifest is the machine's, and a
+    run that collects nothing and says nothing is worse than the wrong data it
+    replaced.
+    """
+    print(
+        f"Rate-limited fetching {stage} for {video_id} after {retries} retries; "
+        "not written. Re-run to retry it.",
+        file=sys.stderr,
+    )
+
+
 def _call_with_retries(call, retries: int, base: float, cap: float):
     """Re-run ``call`` while it keeps failing transiently; return its last result.
 
@@ -944,6 +960,10 @@ def main(argv=None) -> int:
 
     members = []
     hit_network = False
+    # Counted so the run can tell "collected nothing because it was blocked" from
+    # "collected something, with losses listed" — the two must not exit alike.
+    collected = 0
+    rate_limited = 0
     # Each rate-limit event backs the whole rest of the run off, permanently: a run
     # that keeps knocking at the same rate after being throttled is how a soft,
     # recoverable throttle becomes a hard IP block.
@@ -956,6 +976,7 @@ def main(argv=None) -> int:
                 "files": {"json": f"{index[video_id]}.json", "md": None},
                 "transcript": None,
             })
+            collected += 1
             continue
 
         if hit_network:
@@ -971,6 +992,8 @@ def main(argv=None) -> int:
                 pacing = escalate_pacing(pacing, args.max_pacing)
                 status = "rate_limited"
                 reason = f"metadata fetch rate-limited after {args.retries} retries"
+                rate_limited += 1
+                _warn_rate_limited(video_id, "metadata", args.retries)
             else:
                 status = "metadata_failed"
                 reason = "metadata fetch failed"
@@ -996,6 +1019,8 @@ def main(argv=None) -> int:
                 # Leaving it absent is what makes resume correct. A video that genuinely
                 # has no captions is complete, and is written exactly as before.
                 pacing = escalate_pacing(pacing, args.max_pacing)
+                rate_limited += 1
+                _warn_rate_limited(video_id, "transcript", args.retries)
                 members.append({
                     "position": position, "video_id": video_id,
                     "title": meta.get("title") or title,
@@ -1027,6 +1052,7 @@ def main(argv=None) -> int:
             taken[base] = video_id
             files = write_artifacts(artifact, out_dir, args.format, base)
 
+        collected += 1
         selected = transcript_block.get("selected") or {}
         members.append({
             "position": position, "video_id": video_id,
@@ -1041,6 +1067,14 @@ def main(argv=None) -> int:
 
     if collection_info and not print_mode:
         write_manifest(collection_info, members, out_dir)
+
+    # Exit 0 having collected nothing is a lie a CI job or a shell loop would
+    # swallow: the run produced no artifact precisely because it was blocked, and
+    # that is a retryable outcome, not a success. A run where anything landed keeps
+    # its exit 0 — failed and rate-limited members are listed in the manifest, never
+    # silently dropped, and that contract is unchanged.
+    if rate_limited and not collected:
+        return 1
 
     return 0
 
