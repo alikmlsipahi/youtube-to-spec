@@ -21,6 +21,7 @@
 - [green] T-S1-09 — build_manifest
 - [green] T-S1-10 — parse_hidden_unavailable
 - [green] T-S1-11 — graceful degradation (fetch_metadata)
+- [spec] T-S1-12 — request_delay (jittered inter-request sleep)
 
 ## Skill 2 — `feature-requirement-extractor` (unit / blind-TDD)
 
