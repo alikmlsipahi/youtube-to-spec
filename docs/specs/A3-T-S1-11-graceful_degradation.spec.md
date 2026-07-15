@@ -59,9 +59,12 @@ The function invokes, conceptually, `yt-dlp --skip-download --dump-json <video_i
 Returns a 2-tuple `(meta, failure)`. Exactly one of the two is ever non-`None`:
 
 - **Success:** return code `0` **and** stdout parses as JSON → `(parsed_dict, None)`.
-- **Failure:** → `(None, kind)` where `kind` is `"transient"` or `"permanent"`, obtained by handing
-  the failure to `classify_failure` (T-S1-16). **This unit does not classify anything itself** — it
-  captures the evidence and delegates the judgement, so the signal lists live in exactly one place.
+- **Failure:** → `(None, kind)` where `kind` is `"transient"`, `"permanent"` or **`"unknown"`
+  [v2.5]**, obtained by handing the failure to `classify_failure` (T-S1-16). **This unit does not
+  classify anything itself** — it captures the evidence and delegates the judgement, so the signal
+  lists live in exactly one place. It follows that this unit gained the third verdict for free: it
+  passes through whatever the classifier says, and a test of this unit should not need to know which
+  strings produce which answer.
 
 How the evidence is gathered per failure mode:
 
@@ -70,10 +73,12 @@ How the evidence is gathered per failure mode:
   be suppressed).
 - **Subprocess raised** (tool missing, timeout expired, OS error) → `classify_failure(type(exc).__name__, str(exc))`.
   Note this needs no special-casing per exception type, and that is the point of routing it through
-  the classifier: a yt-dlp that is not installed produces text the classifier does not recognize and
-  therefore calls `"permanent"` (correct — installing it is not something a retry achieves), while an
-  expired timeout produces text containing a timeout signal and is called `"transient"` (also
-  correct — the next attempt may well succeed).
+  the classifier: an expired timeout produces text containing a timeout signal and is called
+  `"transient"` (correct — the next attempt may well succeed), while a yt-dlp that is not installed
+  produces text nothing recognizes and is called **`"unknown"` [v2.5]** — also correct, and usefully
+  so: it is not retried (installing it is not something a retry achieves), and the caller prints the
+  text it did not recognize, which is exactly the `No such file or directory: 'yt-dlp'` a user needs
+  to see. Before v2.5 this was flattened to `"permanent"` and the message was thrown away.
 - **Return code `0` but unparseable/empty stdout** → `(None, "permanent")`. A clean exit that emits
   garbage is not a throttle, and re-running it is not expected to produce different bytes. [ASSUMPTION]
 
@@ -90,10 +95,14 @@ Unchanged from the original contract, and still load-bearing:
 - **Non-zero exit, stderr carries a rate-limit or bot-check signal** → `(None, "transient")`. This is
   the case the whole re-sign exists to make expressible; under the old contract it was indistinguishable
   from the line above.
-- **Non-zero exit, stderr empty** → `(None, "permanent")` — the classifier's unknown rule applies.
+- **Non-zero exit, stderr empty** → `(None, "unknown")` — nothing was offered to recognize. **[v2.5]**
+- **Non-zero exit, stderr carries text the classifier does not recognize** → `(None, "unknown")`.
+  **[v2.5]** This is the drift case: a reworded YouTube message lands here rather than being
+  relabelled `"permanent"`.
 - **Return code 0 with valid JSON stdout** → `(parsed_dict, None)`.
 - **Return code 0 but unparseable/empty stdout** → `(None, "permanent")`. [ASSUMPTION]
-- **yt-dlp executable missing (`FileNotFoundError`)** → `(None, "permanent")`, not an exception.
+- **yt-dlp executable missing (`FileNotFoundError`)** → `(None, "unknown")`, not an exception.
+  **[v2.5]** Not retried either way; the difference is that the message now reaches the user.
 - **Timeout expires** → `(None, "transient")`, not an exception.
 - **`timeout=None`** → no time limit is imposed (the pre-v2.3 behavior remains reachable).
 - The function must **never** raise on any of the above.
@@ -111,9 +120,15 @@ Unchanged from the original contract, and still load-bearing:
 - **Given** `subprocess.run` is mocked to return return code `0` with stdout that is not valid JSON,
   **when** it runs, **then** it returns `(None, "permanent")` and does not raise.
 - **Given** `subprocess.run` is mocked to raise as though the yt-dlp executable were missing, **when**
-  it runs, **then** it returns `(None, "permanent")` and does not raise.
+  it runs, **then** it returns `(None, "unknown")` and does not raise. **[v2.5]**
 - **Given** `subprocess.run` is mocked to raise as though the call had timed out, **when** it runs,
   **then** it returns `(None, "transient")` and does not raise.
+- **Given** `subprocess.run` is mocked to return a **non-zero** return code with **empty** stderr,
+  **when** it runs, **then** it returns `(None, "unknown")` — nothing was offered to recognize.
+  **[v2.5]**
+- **Given** `subprocess.run` is mocked to return a **non-zero** return code with stderr carrying text
+  that matches no known signal, **when** it runs, **then** it returns `(None, "unknown")` — **not**
+  `"permanent"`. This is the drift case, and it is the scenario the v2.5 revision exists for. **[v2.5]**
 - **Given** two videos processed in sequence where the first's subprocess fails, **when** the batch
   continues, **then** the failure is isolated to that video — the second still proceeds.
 

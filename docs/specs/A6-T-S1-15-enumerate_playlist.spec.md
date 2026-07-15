@@ -27,7 +27,8 @@
 Enumerate a playlist's identity and its **ordered** members by shelling out to yt-dlp's flat listing,
 returning a dict carrying the playlist's `id`/`title`/`uploader`, the members in playlist order, and the
 count of unavailable members yt-dlp hid from the listing — or, on any failure, **`None` plus a
-classification of that failure** (`"transient"` or `"permanent"`), so an unreachable playlist degrades
+classification of that failure** (`"transient"`, `"permanent"` or `"unknown"`), so an unreachable
+playlist degrades
 gracefully instead of aborting the run, and so a throttled one can be retried rather than written off.
 
 ## Signature
@@ -85,8 +86,8 @@ Returns a 2-tuple `(playlist, failure)`. Exactly one half is ever non-`None`. **
 - **Null titles are preserved, not repaired.** An entry's `title` is passed through exactly as yt-dlp
   reported it, including `None`. The video-id fallback for an untitled member is `artifact_basename`'s job
   (T-S1-13), not this function's; a coerced empty string here would defeat that fallback's own contract.
-- **Failure path (graceful):** on any failure, return `(None, kind)` where `kind` is `"transient"` or
-  `"permanent"` — do **not** raise, and do **not** call `sys.exit`. This follows the convention T-S1-11
+- **Failure path (graceful):** on any failure, return `(None, kind)` where `kind` is `"transient"`,
+  `"permanent"` or **`"unknown"` [v2.5]** — do **not** raise, and do **not** call `sys.exit`. This follows the convention T-S1-11
   establishes for `fetch_metadata`: the script-wide `except → stderr → sys.exit(1)` convention applies
   to fatal top-level errors, not to a yt-dlp call that came back unhappy. Failure is always signalled
   by the return value, never by an exception. **[v2.3]**
@@ -95,7 +96,8 @@ Returns a 2-tuple `(playlist, failure)`. Exactly one half is ever non-`None`. **
     the name is empty and stderr carries the evidence.
   - **Subprocess raised** (tool missing, timeout expired, OS error) →
     `classify_failure(type(exc).__name__, str(exc))`. No per-exception special-casing: a missing yt-dlp
-    yields text the classifier does not recognize → `"permanent"` (correct — no retry installs it);
+    yields text nothing recognizes → **`"unknown"` [v2.5]** (still not retried — no retry installs it —
+    but the message now reaches the user);
     an expired timeout yields text carrying a timeout signal → `"transient"` (also correct).
   - **Return code `0` but unparseable/empty stdout** → `(None, "permanent")`. A clean exit emitting
     garbage is not a throttle. [ASSUMPTION]
@@ -116,7 +118,9 @@ Returns a 2-tuple `(playlist, failure)`. Exactly one half is ever non-`None`. **
   `(None, "permanent")`.
 - **Non-zero exit, stderr carries a rate-limit or bot-check signal:** returns `(None, "transient")` —
   the same return code as the line above, classified oppositely on stderr alone. **[v2.3]**
-- **Non-zero exit, stderr empty:** returns `(None, "permanent")` — the classifier's unknown rule.
+- **Non-zero exit, stderr empty:** returns `(None, "unknown")` — nothing was offered to recognize. **[v2.5]**
+- **Non-zero exit, stderr carries text matching no known signal:** returns `(None, "unknown")`, **not**
+  `"permanent"`. The drift case. **[v2.5]**
 - **Return code 0 but unparseable or empty stdout:** treated as a failure → returns
   `(None, "permanent")`. A successful exit with garbage output must not propagate a parse exception to
   the caller. [ASSUMPTION] — this mirrors T-S1-11's identical defensive rule.
@@ -125,7 +129,7 @@ Returns a 2-tuple `(playlist, failure)`. Exactly one half is ever non-`None`. **
   the same "never raises" guarantee as every other failure path, and it is the path that historically
   broke it. **[v2.4]**
 - **yt-dlp executable missing (`FileNotFoundError`) or other subprocess error:** treated as a failure →
-  returns `(None, "permanent")`, not an exception. [ASSUMPTION] — again mirroring T-S1-11.
+  returns `(None, "unknown")`, not an exception. **[v2.5]** [ASSUMPTION] — again mirroring T-S1-11.
 - **Timeout expires:** returns `(None, "transient")`, not an exception. **[v2.3]**
 - **`timeout=None`:** no time limit is imposed (the pre-v2.3 behavior remains reachable). **[v2.3]**
 - **stderr carries no hidden-unavailable WARNING:** `hidden_unavailable_count` is `0` — that is
