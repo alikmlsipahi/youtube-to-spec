@@ -24,6 +24,7 @@
 - [accepted] T-S1-12 — request_delay (jittered inter-request sleep) — verified: test_request_delay.py 10/10, full skill-1 suite 132/132, no regressions; end-to-end live-run verification below (SK1-ORCH v2.2)
 - [accepted] T-S1-13 — artifact_basename / common_title_prefix — **[v2.1] naming policy, retrofitted coverage.** 38 cases green. Spec authored from documented policy + signatures/docstrings only (no bodies); tests authored from spec only (no implementation) — so green means the code matches its documented contract, not that the tests match the code. Zero divergences. Guard proven: dropping the pad floor to one digit fails 4 cases.
 - [accepted] T-S1-14 — scan_existing — same retrofit route; 24 cases green, zero divergences. Guard proven: removing the `_manifest.json` / `*.requirements.json` exclusion fails 2 cases. Full skill-1 suite 132 → 196.
+- [accepted] T-S1-15 — enumerate_playlist — last untested piece of the playlist path; 16 cases green, zero divergences (suite 196 → 212). Same retrofit route (spec from docs + signature/docstring, tests from spec only). Pins order preservation, no-dedup, null-title members kept in place, and warning-coexists-with-complete-listing. Guard proven: filtering null-title entries fails 3 cases. **Speccing it also caught a false claim in 3 places** (docstring + `PLAN_v2:76-77` + `A3-T-S1-10` provenance) that yt-dlp "omits" hidden members — measured false; all corrected.
 
 ## Skill 2 — `feature-requirement-extractor` (unit / blind-TDD)
 
@@ -47,6 +48,14 @@
 > policy, nothing in any tier objected and I-01 sat red unnoticed. They are now real units
 > (T-S1-13/14). The rule to draw: **glue is the I/O and wiring, not every function that
 > arrives with it** — a pure function belongs in the unit tier no matter which phase adds it.
+>
+> `enumerate_playlist` was the follow-on case: genuinely I/O glue, so the framing was right
+> about *where* it lives — but it was also the **only** playlist logic no tier ran, and the
+> integration gate meant to cover it (I-02) was prose, not code. It is now T-S1-15 (mocked
+> subprocess) *and* covered by an automated I-02. The second rule: **"integration-gated" is
+> only an excuse if the gate is executable.** Both remaining Skill 2 entries below inherit
+> this problem — see `write_outputs`, which SK2-ORCH claims I-03 verifies, though I-03 stops
+> at the function immediately before it.
 
 - [done] SK1-ORCH — extract_artifacts.py main/CLI/IO + enumerate_playlist/fetch_transcript/build_artifact/write_* (verified by I-01 ✓, I-02 ✓)
   - [done] **[v2.1]** title-derived artifact filenames — `artifact_basename` re-signed + `common_title_prefix` / `scan_existing` added; `--skip-existing` now resolves via the on-disk id index. `slugify`/`collection_dir_name` (T-S1-04) untouched, so no blind-TDD chain was re-opened. Re-verified: real playlist → `01-tek-tek-ogrenci-yukleme.json` … `19-…`, manifest `summary` unchanged (24/19 ok/5 failed), `--skip-existing` second pass skipped 19 in 0.09s (no network); 247 unit tests green.
@@ -66,7 +75,8 @@
 
 - [green] I-01 — Skill 1 real fl1DSmwQKKY → metadata + title-derived artifact on disk. Split in two (2026-07-15): `writes_titled_artifact` **passes** (verified: `_singles/what-is-claude-code.json` + `.md`, `video.id` matches, basename is the title slug not the id); `fetches_transcript` **skips** from this network — YouTube `IpBlocked` on transcript fetch, so `available_tracks=[en auto]` is read but `transcript.available:false`. Skip ≠ pass: it runs for real on an unblocked network, and zero caption tracks would still fail.
   - **[correction 2026-07-15]** This row previously claimed `60 tr auto segments … available_tracks=[tr]`. That evidence does not describe `fl1DSmwQKKY` ("What is Claude Code?"), which exposes exactly one `en` auto track — measured directly. The claim predates `2bceaa9` swapping in this public video, and the gate was never re-run against it; the stale evidence rode along on the new id. Replaced with what is actually verifiable here.
-- [green] I-02 — Skill 1 real playlist → hidden_unavailable_count:5, members ordered 1..24, 19 ok / 5 metadata_failed w/ reason (verified)
+- [green] I-02 — Skill 1 real playlist → **now an automated test** (`tests/integration/test_skill1_playlist.py`, 2 cases, ~29s). Live run 2026-07-15 against `PLk-DU0q6QMPP7RfYiyhiJY7qQOXoaFKHL`: summary `total:24, ok:19, failed:5`, members ordered 1..24, hidden_unavailable_count 5 — matching the original manual evidence exactly, a year on. Asserts structure + internal consistency (ordering, summary/member agreement, failed members listed w/ reason and `files:null`, ok members' manifest names present on disk, `<position>-<slug>` naming), **not** the upstream counts — pinning 24/5/19 would break when the channel adds a video, which is how I-01's assertion went stale. Guard proven: breaking the stderr anchor regex fails the count assertion; reverting `artifact_basename` to id-naming fails the naming assertion.
+  - **[why this mattered]** Until 2026-07-15 this row was green on **manual** evidence — the gate was a prose prompt in `IMPLEMENTATION_GUIDE_v2.md:631-644`, not code. It was the one gate positioned to catch v2.1's `<position>-<slug>` rename, and it caught nothing because it did not exist. It also missed a real yt-dlp wording drift (see T-S1-10). A gate that only a human can run is not a gate.
 - [green] I-03 — Skill 2 OpenAI real key → same JSON/MD shape parsed (json_schema; valid ids, composite-unique; model trace accuracy is model-side, not script)
 
 ## Acceptance-only (prompt-following & trigger behavior)

@@ -636,12 +636,19 @@ B2: Run same WITHOUT --print.
 Expected: data/_singles/what-is-claude-code.json + .md created (basename is the title slug, not the video id). Segments carry index field.
 Verify file exists and structure.
 
-B3: Run on playlist URL: https://www.youtube.com/playlist?list=PLxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-Expected: data/<slug>-PLk.../ folder with _manifest.json, per-video JSON+MD.
-Manifest has hidden_unavailable_count:5, ordered members, failures recorded with status.
-Verify and report.
+B3: Run on playlist URL: https://www.youtube.com/playlist?list=PLk-DU0q6QMPP7RfYiyhiJY7qQOXoaFKHL
+Expected: data/edesis-kayit-modulu-rehberi-PLk-DU0q6QMPP7RfYiyhiJY7qQOXoaFKHL/ folder with
+_manifest.json and per-video JSON+MD named <position>-<title-slug> (e.g. 01-tek-tek-ogrenci-yukleme.json).
+Manifest has hidden_unavailable_count:5, ordered members 1..24, 19 ok / 5 metadata_failed recorded
+with status+reason. Verify and report.
 
 Update progress for I-01, I-02 based on results.
+
+NOTE (2026-07-15): I-02 is now an automated test — tests/integration/test_skill1_playlist.py — so this
+prompt is a manual walkthrough, no longer the gate itself. Prefer:
+  RUN_INTEGRATION=1 uv run --with pytest --with openai --with python-dotenv \
+    pytest tests/integration -m integration -v
+This block previously carried a PLxxxx placeholder, which is part of why the gate was never really run.
 ```
 
 #### B4 — SESSION (Trigger Test)
