@@ -142,6 +142,13 @@ Failure class names (transcript path):
 Message fragments (either path):
 
 - `Private video` / `This video is private`
+- **`This playlist is private`** — the playlist-level counterpart. **[v2.5]** Do not assume the video
+  signals cover it: they say *video*, and a private playlist says *playlist*, so nothing matched.
+  This gap was found by the `"unknown"` verdict on the day it was introduced — the old
+  unknown→permanent collapse had been answering `"permanent"` for private playlists by accident, via
+  the fall-through, and the test that covered it was green for the wrong reason. Recorded here as the
+  first thing the canary caught, and as the reason it exists: a signal list is a wall of someone
+  else's copy, and the holes in it are invisible until something refuses to guess.
 - `Video unavailable` / `This video is not available`
 - `removed by the uploader`
 - `members-only` / `join this channel`

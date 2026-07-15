@@ -404,6 +404,10 @@ _TRANSIENT_FAILURE_SIGNALS = (
 )
 _PERMANENT_FAILURE_SIGNALS = (
     "private video", "this video is private",
+    # A playlist says "playlist", not "video", so the two lines above never covered
+    # it — the gap sat unnoticed behind the old unknown→permanent fall-through,
+    # which answered correctly here by accident rather than by matching anything.
+    "this playlist is private",
     "video unavailable", "this video is not available",
     "removed by the uploader",
     "members-only", "join this channel",
@@ -412,7 +416,7 @@ _PERMANENT_FAILURE_SIGNALS = (
 
 
 def classify_failure(name: str, text: str) -> str:
-    """Judge whether a failure is worth another attempt: ``"transient"`` or ``"permanent"``.
+    """Say what is known about a failure: ``"transient"``, ``"permanent"`` or ``"unknown"``.
 
     Takes the failure's class name (``""`` on the yt-dlp path, which is a
     subprocess and so has no exception object) and its human-readable text
@@ -425,9 +429,20 @@ def classify_failure(name: str, text: str) -> str:
     within a single multi-line stderr that carries both: a wrong ``"transient"``
     costs a bounded, backed-off retry that gives up and records the video anyway,
     while a wrong ``"permanent"`` writes a recoverable throttle down as fact and
-    loses the transcript for good. An unrecognized failure is ``"permanent"`` —
-    retrying what nobody has characterized aims more traffic at a service that
-    just failed us, working against the very rate-limit avoidance retry serves.
+    loses the transcript for good.
+
+    An unrecognized failure is ``"unknown"``, kept apart from ``"permanent"``
+    because "I know this will never succeed" and "I have never seen this before"
+    are not the same claim. The lists above are a wall of string literals matched
+    against someone else's copy: whenever YouTube or yt-dlp rewords a message its
+    signal stops matching and falls through here, and answering ``"permanent"``
+    would hand the caller a conclusion nobody reached — a blocked transcript
+    recorded as "this video has no captions", with nothing raising to say so.
+    Drift cannot be recognized in advance, only kept from being silent, so the
+    fall-through says what it is and the caller reports the text and declines to
+    write anything down. Retry is unaffected: callers test ``!= "transient"``, and
+    retrying what nobody has characterized would aim more traffic at a service
+    that just failed us.
 
     Pure computation only. The two "Sign in to confirm…" messages share a prefix
     and resolve oppositely (bot check vs. age gate), so the distinguishing tail is
@@ -445,7 +460,41 @@ def classify_failure(name: str, text: str) -> str:
         signal in lowered for signal in _PERMANENT_FAILURE_SIGNALS
     ):
         return "permanent"
-    return "permanent"
+    return "unknown"
+
+
+# Real stderr is multi-line and prefixed; enough of it to recognize the failure
+# by, not so much that one unrecognized video buries the rest of the run's output.
+_UNRECOGNIZED_TEXT_LIMIT = 500
+
+
+def _classify_and_report(name: str, text: str, subject: str, stage: str) -> str:
+    """Delegate to :func:`classify_failure`, printing the text when it recognized nothing.
+
+    This is the only moment the evidence exists. Every caller holds the failure's
+    text for the length of a ``return`` and then drops it, and the failures worth
+    seeing are exactly the ones that cannot be asked for again — a throttle that
+    has since cleared reproduces as a success, and a reworded message is only
+    reworded once. Printing it here is what makes drift cost a re-run instead of a
+    transcript.
+
+    The report lives outside :func:`classify_failure` so that unit stays pure, and
+    outside the call sites so each stays the one-line delegation it reads as.
+    Prints and never raises: it sits inside helpers that promise a return value on
+    every path.
+    """
+    failure = classify_failure(name, text)
+    if failure == "unknown":
+        excerpt = (text or "").strip()
+        if len(excerpt) > _UNRECOGNIZED_TEXT_LIMIT:
+            excerpt = excerpt[:_UNRECOGNIZED_TEXT_LIMIT] + "…"
+        print(
+            f"Unrecognized {stage} failure for {subject}; its signal is missing "
+            "from classify_failure and wants adding. The text was:\n"
+            f"{excerpt or '(none)'}",
+            file=sys.stderr,
+        )
+    return failure
 
 
 def fetch_metadata(
@@ -478,11 +527,15 @@ def fetch_metadata(
             timeout=timeout,
         )
     except Exception as exc:
-        return None, classify_failure(type(exc).__name__, str(exc))
+        return None, _classify_and_report(
+            type(exc).__name__, str(exc), video_id, "metadata"
+        )
 
     if result.returncode != 0:
         # No exception object on this path — stderr carries the whole story.
-        return None, classify_failure("", result.stderr or "")
+        return None, _classify_and_report(
+            "", result.stderr or "", video_id, "metadata"
+        )
 
     try:
         return json.loads(result.stdout), None
@@ -564,9 +617,11 @@ def enumerate_playlist(
             timeout=timeout,
         )
     except Exception as exc:
-        return None, classify_failure(type(exc).__name__, str(exc))
+        return None, _classify_and_report(
+            type(exc).__name__, str(exc), url, "playlist"
+        )
     if result.returncode != 0:
-        return None, classify_failure("", result.stderr or "")
+        return None, _classify_and_report("", result.stderr or "", url, "playlist")
     try:
         data = json.loads(result.stdout)
     except Exception:
@@ -612,8 +667,8 @@ def fetch_transcript(video_id: str, langs) -> tuple[dict, str | None]:
     try:
         track_list = list(YouTubeTranscriptApi().list(video_id))
     except Exception as exc:
-        return _empty_transcript_block(), classify_failure(
-            type(exc).__name__, str(exc)
+        return _empty_transcript_block(), _classify_and_report(
+            type(exc).__name__, str(exc), video_id, "transcript"
         )
 
     selected_track, info = select_transcript_track(track_list, langs)
@@ -629,7 +684,9 @@ def fetch_transcript(video_id: str, langs) -> tuple[dict, str | None]:
     except Exception as exc:
         block = _empty_transcript_block()
         block["available_tracks"] = info["available_tracks"]
-        return block, classify_failure(type(exc).__name__, str(exc))
+        return block, _classify_and_report(
+            type(exc).__name__, str(exc), video_id, "transcript"
+        )
 
     return {
         "available": True,
@@ -818,18 +875,26 @@ def _warn_failed(video_id: str, stage: str, kind: str, retries: int) -> None:
     the user's face where the manifest is the machine's, and a run that collects
     nothing and says nothing is worse than the wrong data it replaced.
 
-    The two kinds read differently because they ask different things of the reader:
-    a rate limit clears on its own, so re-running is the fix, while a permanent
-    failure will not clear — and sending a user back to re-run a deleted video
+    The three kinds read differently because they ask different things of the
+    reader. A rate limit clears on its own, so re-running is the fix. A permanent
+    failure will not clear, and sending a user back to re-run a deleted video
     wastes their time and spends traffic budget on a request that cannot succeed.
-    Neither message names a cause: ``"permanent"`` also covers every failure the
-    classifier does not recognize, and guessing "private" at a missing yt-dlp
-    would be a confident lie.
+    An unrecognized failure supports neither answer — the run does not know what
+    happened, and the honest thing is to say so and point at the text it printed
+    when it gave up trying to place it, which is the only description of the
+    failure anyone has. No message names a cause: guessing "private" at a missing
+    yt-dlp would be a confident lie.
     """
     if kind == "transient":
         print(
             f"Rate-limited fetching {stage} for {video_id} after {retries} retries; "
             "not written. Re-run to retry it.",
+            file=sys.stderr,
+        )
+    elif kind == "unknown":
+        print(
+            f"Failed fetching {stage} for {video_id}; not written. The failure was "
+            "not recognized — see the text printed above.",
             file=sys.stderr,
         )
     else:
@@ -1013,6 +1078,13 @@ def main(argv=None) -> int:
                 pacing = escalate_pacing(pacing, args.max_pacing)
                 status = "rate_limited"
                 reason = f"metadata fetch rate-limited after {args.retries} retries"
+            elif failure == "unknown":
+                # `metadata_failed` would claim the fetch established something about
+                # the video; nothing was established, only that we could not read the
+                # failure. The pace is left alone — an unrecognized failure is no
+                # evidence of a throttle.
+                status = "unrecognized"
+                reason = "metadata fetch failed for an unrecognized reason"
             else:
                 status = "metadata_failed"
                 reason = "metadata fetch failed"
@@ -1032,21 +1104,30 @@ def main(argv=None) -> int:
                 lambda: fetch_transcript(video_id, langs),
                 args.retries, args.retry_base, args.retry_cap,
             )
-            if failure == "transient":
-                # A JSON on disk means a complete artifact, so this one is not written
-                # at all. An artifact carrying a transiently-empty transcript would be
-                # indexed by `scan_existing`, the next `--skip-existing` run would skip
-                # it forever, and the blocked transcript would become silent data loss.
-                # Leaving it absent is what makes resume correct. A video that genuinely
-                # has no captions is complete, and is written exactly as before.
-                pacing = escalate_pacing(pacing, args.max_pacing)
+            if failure in ("transient", "unknown"):
+                # Neither verdict establishes that this video has no captions, and a
+                # JSON on disk means a complete artifact — so this one is not written
+                # at all. An artifact carrying an empty transcript nobody confirmed
+                # empty would be indexed by `scan_existing`, the next `--skip-existing`
+                # run would skip it forever, and the missing transcript would become
+                # silent data loss. Leaving it absent is what makes resume correct.
+                # A genuine absence classifies `"permanent"`: that one is established,
+                # the artifact is complete, and it is written exactly as before.
+                if failure == "transient":
+                    pacing = escalate_pacing(pacing, args.max_pacing)
+                    status = "rate_limited"
+                    reason = (
+                        f"transcript fetch rate-limited after {args.retries} retries"
+                    )
+                else:
+                    status = "unrecognized"
+                    reason = "transcript fetch failed for an unrecognized reason"
                 failed += 1
                 _warn_failed(video_id, "transcript", failure, args.retries)
                 members.append({
                     "position": position, "video_id": video_id,
                     "title": meta.get("title") or title,
-                    "status": "rate_limited",
-                    "reason": f"transcript fetch rate-limited after {args.retries} retries",
+                    "status": status, "reason": reason,
                     "files": None, "transcript": None,
                 })
                 continue
