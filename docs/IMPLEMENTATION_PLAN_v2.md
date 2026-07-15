@@ -161,10 +161,17 @@ data/
 
 **[v2.1] Artifact basename:** `slugify(<video title>)`, with the token prefix every member of the
 collection shares dropped (`edesis | Kayıt Modülü Nasıl Kullanılır? Şube Ekleme!` → `15-sube-ekleme`).
-Collection members carry their playlist position, zero-padded to the member count; standalone videos
-carry none. The video id is the fallback when a title yields no usable slug (absent title, emoji-only,
-fully transliterated away) and the disambiguator when two standalone videos share a title. Consumers
-resolve members through the manifest's `files{json,md}`, never by rebuilding the name.
+Collection members carry their playlist position, zero-padded to the width of the member count with a
+**minimum of two digits** (a 5-member collection still yields `05-…`, a 100-member one `005-…`);
+standalone videos carry none. The video id is the fallback when a title yields no usable slug (absent
+title, emoji-only, fully transliterated away). It is also appended as the disambiguator when two
+standalone videos would claim the same basename — that collision check belongs to the `main()` loop,
+which alone knows what the run has already claimed, not to `artifact_basename`. Consumers resolve
+members through the manifest's `files{json,md}`, never by rebuilding the name.
+
+*Pinned by T-S1-13/14 (`docs/specs/A6-T-S1-13-…`, `A6-T-S1-14-…`). The two-digit floor and the
+disambiguator's home were left implicit here until 2026-07-15 and are now stated: the floor keeps
+names uniform and stable if a playlist later grows past nine members.*
 
 **`_manifest.json`:** `collection{type,id,title,uploader,source_url,hidden_unavailable_count}`,
 `members[]` (position, video_id, title, `status` = ok|metadata_failed|skipped_unavailable,
@@ -315,6 +322,8 @@ Each row = one requirement with a stable id used by the checklist. **Pure/offlin
 | T-S1-10 | `parse_hidden_unavailable` | extracts `5` from stderr WARNING; `0` when absent |
 | T-S1-11 | graceful degradation | `fetch_metadata` returns `None` on nonzero subprocess (mocked) → run records `metadata_failed` and continues |
 | T-S1-12 | `request_delay` | jittered inter-request delay for `--sleep-requests`: `base<=0`→`0.0` (rng never called); else `base + base*rng()` ∈ `[base, 2*base)` |
+| T-S1-13 | `artifact_basename` / `common_title_prefix` | **[v2.1]** title slug basename; shared boilerplate prefix dropped at token boundary; position zero-padded (floor 2); video-id fallback when the title yields no slug; prefix `""` when <3 usable titles or when dropping would empty a member |
+| T-S1-14 | `scan_existing` | `{video_id: basename}` read off disk (id from `video.id`, never parsed from the filename); `_manifest.json` + `*.requirements.json` excluded; unreadable files ignored, never fatal; no network |
 
 *Skill 2 — `feature-requirement-extractor` (OpenAI engine `scripts/extract_requirements.py`):*
 | id | unit | what the test pins down |
@@ -422,7 +431,7 @@ complete** — `B4`/`B5`/`B6` require the `SKILL.md` files and Skill 2 assets to
 3. **Skill 1 playlist + graceful degradation** → real playlist → `data/<slug>-PLk…/` + `_manifest.json`
    (`hidden_unavailable_count:5`, ordered members), per-video failures recorded, run **continues** *(I-02)*.
 4. **Skill 1 `watch?v=…&list=…`** → single by default; `--playlist` expands. SKILL.md trigger test *(A-01)* **[v2] needs C1**.
-5. **Skill 2 Claude-native** → point at `fl1DSmwQKKY.json` → filled doc with `<MODULE>-<FEATURE>-NNN`
+5. **Skill 2 Claude-native** → point at `what-is-claude-code.json` → filled doc with `<MODULE>-<FEATURE>-NNN`
    codes, `source_video_id` set, traces matching real segment times *(A-02, A-03)* **[v2] needs C2+C3**.
 6. **Skill 2 OpenAI** → with `.env` key → same JSON/MD shape, configurable params honored *(I-03)* **[v2] needs C2**.
 7. **Deprecate `youtube-transcript`** → separate user-approved step; update root `skills-lock.json`.

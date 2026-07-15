@@ -22,6 +22,8 @@
 - [green] T-S1-10 — parse_hidden_unavailable
 - [green] T-S1-11 — graceful degradation (fetch_metadata)
 - [accepted] T-S1-12 — request_delay (jittered inter-request sleep) — verified: test_request_delay.py 10/10, full skill-1 suite 132/132, no regressions; end-to-end live-run verification below (SK1-ORCH v2.2)
+- [accepted] T-S1-13 — artifact_basename / common_title_prefix — **[v2.1] naming policy, retrofitted coverage.** 38 cases green. Spec authored from documented policy + signatures/docstrings only (no bodies); tests authored from spec only (no implementation) — so green means the code matches its documented contract, not that the tests match the code. Zero divergences. Guard proven: dropping the pad floor to one digit fails 4 cases.
+- [accepted] T-S1-14 — scan_existing — same retrofit route; 24 cases green, zero divergences. Guard proven: removing the `_manifest.json` / `*.requirements.json` exclusion fails 2 cases. Full skill-1 suite 132 → 196.
 
 ## Skill 2 — `feature-requirement-extractor` (unit / blind-TDD)
 
@@ -38,6 +40,13 @@
 > Additive `main()`/CLI/IO + new glue functions wiring the green helpers into an
 > end-to-end flow. Existing functions untouched; verified via the integration gates
 > below, not unit tests.
+>
+> **[2026-07-15]** This "glue needs no unit test" framing cost us: `artifact_basename`,
+> `common_title_prefix` and `scan_existing` landed here under it, but the first two are
+> *pure functions* carrying the entire [v2.1] naming policy — so when v2.1 changed that
+> policy, nothing in any tier objected and I-01 sat red unnoticed. They are now real units
+> (T-S1-13/14). The rule to draw: **glue is the I/O and wiring, not every function that
+> arrives with it** — a pure function belongs in the unit tier no matter which phase adds it.
 
 - [done] SK1-ORCH — extract_artifacts.py main/CLI/IO + enumerate_playlist/fetch_transcript/build_artifact/write_* (verified by I-01 ✓, I-02 ✓)
   - [done] **[v2.1]** title-derived artifact filenames — `artifact_basename` re-signed + `common_title_prefix` / `scan_existing` added; `--skip-existing` now resolves via the on-disk id index. `slugify`/`collection_dir_name` (T-S1-04) untouched, so no blind-TDD chain was re-opened. Re-verified: real playlist → `01-tek-tek-ogrenci-yukleme.json` … `19-…`, manifest `summary` unchanged (24/19 ok/5 failed), `--skip-existing` second pass skipped 19 in 0.09s (no network); 247 unit tests green.
@@ -55,7 +64,8 @@
 
 ## Integration tier (`@pytest.mark.integration`, opt-in)
 
-- [green] I-01 — Skill 1 real fl1DSmwQKKY → 60 tr auto segments (verified: segment_count 60, selected type=auto, available_tracks=[tr])
+- [green] I-01 — Skill 1 real fl1DSmwQKKY → metadata + title-derived artifact on disk. Split in two (2026-07-15): `writes_titled_artifact` **passes** (verified: `_singles/what-is-claude-code.json` + `.md`, `video.id` matches, basename is the title slug not the id); `fetches_transcript` **skips** from this network — YouTube `IpBlocked` on transcript fetch, so `available_tracks=[en auto]` is read but `transcript.available:false`. Skip ≠ pass: it runs for real on an unblocked network, and zero caption tracks would still fail.
+  - **[correction 2026-07-15]** This row previously claimed `60 tr auto segments … available_tracks=[tr]`. That evidence does not describe `fl1DSmwQKKY` ("What is Claude Code?"), which exposes exactly one `en` auto track — measured directly. The claim predates `2bceaa9` swapping in this public video, and the gate was never re-run against it; the stale evidence rode along on the new id. Replaced with what is actually verifiable here.
 - [green] I-02 — Skill 1 real playlist → hidden_unavailable_count:5, members ordered 1..24, 19 ok / 5 metadata_failed w/ reason (verified)
 - [green] I-03 — Skill 2 OpenAI real key → same JSON/MD shape parsed (json_schema; valid ids, composite-unique; model trace accuracy is model-side, not script)
 

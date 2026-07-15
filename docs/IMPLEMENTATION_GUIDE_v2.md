@@ -633,7 +633,7 @@ Expected: 60 Turkish auto segments, selected.type:"auto", available_tracks=[tr],
 Verify and report.
 
 B2: Run same WITHOUT --print.
-Expected: data/_singles/fl1DSmwQKKY.json + .md created. Segments carry index field.
+Expected: data/_singles/what-is-claude-code.json + .md created (basename is the title slug, not the video id). Segments carry index field.
 Verify file exists and structure.
 
 B3: Run on playlist URL: https://www.youtube.com/playlist?list=PLxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
@@ -655,7 +655,7 @@ Update: A-01 → [accepted], SK1-DOC → [accepted]
 #### B5-B6 — SESSION (Skill 2 Integration)
 
 ```
-B5: Use Claude-native engine — point at data/_singles/fl1DSmwQKKY.json.
+B5: Use Claude-native engine — point at data/_singles/what-is-claude-code.json.
 Read prompts/extraction_prompt.md and templates/requirement_doc.md.
 Produce filled requirement doc with <MODULE>-<FEATURE>-NNN codes + traces.
 Verify codes match pattern, traces reference real segment times.
