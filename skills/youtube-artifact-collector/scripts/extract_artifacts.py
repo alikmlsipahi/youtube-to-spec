@@ -413,10 +413,13 @@ def enumerate_playlist(url: str) -> dict | None:
     """List a playlist's ordered members via yt-dlp `--flat-playlist`.
 
     Returns ``{id, title, uploader, entries[], hidden_unavailable_count}`` (entries
-    are ``{id, title}`` in playlist order), or ``None`` on failure. yt-dlp omits
-    hidden/unavailable members from the flat list and warns on stderr; that count
-    is recovered via :func:`parse_hidden_unavailable`. Uses subprocess for per-run
-    isolation and stable JSON, consistent with :func:`fetch_metadata`.
+    are ``{id, title}`` in playlist order), or ``None`` on failure. Unavailable
+    members still appear in the flat list — carrying a null title — and yt-dlp
+    *additionally* reports their count on stderr; that count is recovered via
+    :func:`parse_hidden_unavailable`. They enumerate fine and fail later, at the
+    per-video metadata fetch, which is what makes them `metadata_failed` members
+    rather than missing ones. Uses subprocess for per-run isolation and stable
+    JSON, consistent with :func:`fetch_metadata`.
     """
     try:
         result = subprocess.run(
